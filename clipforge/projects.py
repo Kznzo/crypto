@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import analysis
+from . import analysis, social
 from .config import PROJECTS_DIR, ensure_dirs, load_settings
 from .ffmpeg_utils import BROWSER_CODECS, extract_frame, make_preview_proxy, probe
 
@@ -156,6 +156,7 @@ def summary(p: dict) -> dict:
         "status_text": p.get("status_text"),
         "duration": src.get("duration"),
         "channel": (p.get("origin") or {}).get("channel"),
+        "source": (p.get("origin") or {}).get("source"),
         "has_thumb": (project_dir(p["id"]) / "miniature.jpg").exists(),
         "exports": [k for k, v in (p.get("exports") or {}).items() if v.get("status") == "fini"],
     }
@@ -192,7 +193,11 @@ def finalize_source(pid: str, file_name: str, auto_layout: bool = True) -> dict:
         project = update(pid, status="analyse", status_text="Analyse de la vidéo (facecam, cadrage)…")
         geometry = analysis.analyze_layout(src, info["width"], info["height"], 0, min(info["duration"], 600))
         edit.update(geometry)
-    if not edit["title"].get("text") and not (project.get("origin") or {}).get("vod_range"):
+    if (
+        not edit["title"].get("text")
+        and not (project.get("origin") or {}).get("vod_range")
+        and not social.is_junk_title(project.get("title"))
+    ):
         edit["title"]["text"] = project.get("title") or ""
     highlights = []
     if info["duration"] > 100:

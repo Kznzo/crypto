@@ -71,3 +71,27 @@ def test_library_stats():
     ])
     assert stats["channels"][0] == ("shroud", 2)
     assert stats["exports"] == {"tiktok": 1}
+
+
+def test_kick_texts_and_bios():
+    p = {"origin": {"channel": "xQc", "login": "xqc", "source": "kick", "game": "Just Chatting"},
+         "edit": {"title": {"text": "PIERRE POLE"}}}
+    texts = social.publish_texts(p, "en")
+    tiktok = texts["platforms"]["tiktok"]["text"]
+    assert "kick.com/xqc" in tiktok and "#kickclips" in tiktok and "twitch" not in tiktok.lower()
+    assert "xQc kick" in texts["platforms"]["youtube"]["tags"]
+    fr = social.publish_texts(p, "fr")["platforms"]["tiktok"]["text"]
+    assert "#kickfr" in fr and "sur Kick" in fr
+    bios = social.generate_bios({"streamers": ["xQc"], "lang": "en", "platforms": "kick"})
+    assert "#kickclips" in bios["hashtags"] and "kick clips" in bios["youtube_keywords"]
+    assert not any("Twitch" in b for b in bios["tiktok"] + bios["instagram"] + bios["youtube"])
+    both = social.generate_bios({"streamers": ["xQc"], "lang": "fr", "platforms": "both"})
+    assert "#twitchfr" in both["hashtags"] and "#kickfr" in both["hashtags"]
+
+
+@pytest.mark.parametrize("title, junk", [
+    ("x", True), ("ahaha", False), ("hcmmcgcgg", True), (",tymdgndnntynty", True), ("etsutrdts", True),
+    ("PIERRE POLE", False), ("Splat", False), ("smol shroud", False), ("LE BONHEUR", False), ("Niveau 60", False),
+])
+def test_junk_titles(title, junk):
+    assert social.is_junk_title(title) is junk

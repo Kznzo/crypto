@@ -1,4 +1,4 @@
-"""Récupération des vidéos Twitch avec yt-dlp (clips, extraits de VOD, clips populaires d'une chaîne)."""
+"""Récupération des vidéos Twitch et Kick avec yt-dlp (clips, extraits de VOD, clips populaires d'une chaîne)."""
 from __future__ import annotations
 
 import re
@@ -9,7 +9,24 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from .ffmpeg_utils import ffmpeg_path
 
 CHANNEL_RE = re.compile(r"^[A-Za-z0-9_]{2,25}$")
+KICK_CHANNEL_RE = re.compile(r"^[A-Za-z0-9_-]{2,40}$")
 PERIODS = {"24h": "24hr", "7j": "7d", "30j": "30d", "tout": "all"}
+KICK_PERIODS = {"24h": "day", "7j": "week", "30j": "month", "tout": "all"}
+SOURCES = {"twitch": "Twitch", "kick": "Kick"}
+
+
+def source_of(url: str) -> str:
+    """« twitch », « kick » ou « autre » selon le lien."""
+    host = urlparse(url if "://" in url else "https://" + url).netloc.lower()
+    if host.endswith("kick.com"):
+        return "kick"
+    if host.endswith("twitch.tv"):
+        return "twitch"
+    return "autre"
+
+
+def channel_url(source: str, login: str) -> str:
+    return f"kick.com/{login}" if source == "kick" else f"twitch.tv/{login}"
 
 
 class DownloadError(RuntimeError):
@@ -38,19 +55,23 @@ def parse_time(value: str | float | int | None) -> float | None:
     return total
 
 
-def normalize_channel(value: str) -> str:
+def normalize_channel(value: str, source: str = "twitch") -> str:
     value = (value or "").strip()
-    if "twitch.tv" in value:
+    if "twitch.tv" in value or "kick.com" in value:
         path = urlparse(value if "://" in value else "https://" + value).path.strip("/")
         value = path.split("/")[0] if path else ""
     value = value.lstrip("@")
-    if not CHANNEL_RE.match(value):
-        raise DownloadError("Nom de chaîne Twitch invalide.")
+    pattern = KICK_CHANNEL_RE if source == "kick" else CHANNEL_RE
+    if not pattern.match(value):
+        raise DownloadError(f"Nom de chaîne {SOURCES.get(source, 'Twitch')} invalide.")
     return value.lower()
 
 
 def is_vod_url(url: str) -> bool:
-    return bool(re.search(r"twitch\.tv/(?:videos|[^/]+/v(?:ideo)?)/\d+", url))
+    return bool(
+        re.search(r"twitch\.tv/(?:videos|[^/]+/v(?:ideo)?)/\d+", url)
+        or re.search(r"kick\.com/[\w-]+/videos/[\da-f]{8}-", url)
+    )
 
 
 def vod_start_from_url(url: str) -> float | None:
@@ -84,12 +105,19 @@ def _base_opts(on_progress: Callable[[float, str], None] | None) -> dict:
     }
 
 
-def _meta(info: dict) -> dict:
+def _meta(info: dict, url: str = "") -> dict:
     channel = info.get("creator") or info.get("channel") or info.get("uploader") or ""
     categories = info.get("categories") or []
+    source = source_of(info.get("webpage_url") or url)
+    if source == "kick":
+        login = (info.get("uploader_id") or channel).lower()
+    else:
+        login = re.sub(r"[^a-z0-9_]", "", channel.lower())
     return {
         "title": (info.get("title") or "Clip").strip(),
         "channel": channel,
+        "login": login or None,
+        "source": source,
         "duration": info.get("duration"),
         "url": info.get("webpage_url") or info.get("original_url"),
         "views": info.get("view_count"),
@@ -109,6 +137,8 @@ def _twitch_extra(ydl, url: str) -> dict:
 
     from yt_dlp.networking import Request
 
+    if source_of(url) != "twitch":
+        return {}
     clip = re.search(r"(?:clips\.twitch\.tv/|/clip/)([A-Za-z0-9_-]+)", url)
     video = re.search(r"/videos?/(\d+)", url)
     if clip:
@@ -133,7 +163,7 @@ COOKIE_BROWSERS = ("firefox", "chrome", "edge", "brave", "opera", "vivaldi", "ch
 
 
 def _with_cookies(opts: dict, cookies_browser: str | None) -> dict:
-    """Utilise la session Twitch d'un navigateur (pour les VOD réservées aux abonnés)."""
+    """Utilise la session Twitch / Kick d'un navigateur (pour les VOD réservées aux abonnés)."""
     if cookies_browser in COOKIE_BROWSERS:
         opts["cookiesfrombrowser"] = (cookies_browser,)
     return opts
@@ -150,7 +180,8 @@ def download_clip(
     opts = _with_cookies(_base_opts(on_progress), cookies_browser)
     opts.update({
         # Version paysage d'origine (on évite les formats « portrait » recadrés par Twitch).
-        "format": "best[height<=1080][format_id!^=portrait]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        # « <=? » accepte aussi les formats sans hauteur connue (clips Kick).
+        "format": "best[height<=?1080][format_id!^=portrait]/bestvideo[height<=?1080]+bestaudio/best[height<=?1080]/best",
         "merge_output_format": "mp4",
         "outtmpl": {"default": str(dest_dir / "source.%(ext)s")},
     })
@@ -161,7 +192,7 @@ def download_clip(
     except Exception as exc:
         raise DownloadError(f"Téléchargement impossible : {_short_error(exc)}") from exc
     file = _find_source(dest_dir)
-    meta = _meta(info)
+    meta = _meta(info, url)
     meta.update({k: v for k, v in extra.items() if not meta.get(k)})
     return file, meta
 
@@ -216,7 +247,7 @@ def download_section(
     if on_progress:
         on_progress(0.02, "Lecture des infos de la VOD…")
     opts = _with_cookies({"quiet": True, "no_warnings": True, "noplaylist": True,
-                          "format": "best[height<=1080][protocol^=m3u8]/best[height<=1080]/best"}, cookies_browser)
+                          "format": "best[height<=?1080][protocol^=m3u8]/best[height<=?1080]/best"}, cookies_browser)
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -225,7 +256,7 @@ def download_section(
             if not playlist_url or "m3u8" not in (fmt.get("protocol") or "") and ".m3u8" not in playlist_url:
                 raise DownloadError("Format de VOD inattendu.")
             extra = _twitch_extra(ydl, url)
-            text = ydl.urlopen(playlist_url).read().decode("utf-8", "replace")
+            text = _fetch(ydl, playlist_url, fmt).decode("utf-8", "replace")
             init, segments = parse_media_playlist(text, playlist_url)
             wanted = [s for s in segments if s[1] > start - 0.5 and s[0] < end + 0.5]
             if not wanted:
@@ -235,11 +266,11 @@ def download_section(
             raw = dest_dir / f"morceaux{ext}"
             with raw.open("wb") as out:
                 if init:
-                    out.write(ydl.urlopen(init).read())
+                    out.write(_fetch(ydl, init, fmt))
                 for i, (_, _, seg_url) in enumerate(wanted):
                     for attempt in range(3):
                         try:
-                            out.write(ydl.urlopen(seg_url).read())
+                            out.write(_fetch(ydl, seg_url, fmt))
                             break
                         except Exception:
                             if attempt == 2:
@@ -268,19 +299,42 @@ def download_section(
         if res.returncode != 0:
             raise DownloadError("Impossible d'assembler le passage de la VOD.")
     raw.unlink(missing_ok=True)
-    meta = _meta(info)
+    meta = _meta(info, url)
     meta.update({k: v for k, v in extra.items() if not meta.get(k)})
     meta["vod_range"] = [start, end]
     return final.name, meta
 
 
-def channel_clips(channel: str, period: str = "7j", limit: int = 30) -> list[dict]:
-    """Liste les clips les plus vus d'une chaîne sur une période."""
+def _fetch(ydl, url: str, fmt: dict) -> bytes:
+    """Télécharge un morceau HLS avec les en-têtes du format (et l'imitation de navigateur pour Kick)."""
+    from yt_dlp.networking import Request
+
+    headers = dict(fmt.get("http_headers") or {})
+    extensions = {}
+    if fmt.get("impersonate") or "kick.com" in url:
+        try:
+            from yt_dlp.networking.impersonate import ImpersonateTarget
+
+            extensions["impersonate"] = ImpersonateTarget("chrome")
+        except Exception:
+            pass
+    try:
+        return ydl.urlopen(Request(url, headers=headers, extensions=extensions)).read()
+    except Exception:
+        if not extensions:
+            raise
+        return ydl.urlopen(Request(url, headers=headers)).read()
+
+
+def channel_clips(channel: str, period: str = "7j", limit: int = 30, source: str = "twitch") -> list[dict]:
+    """Liste les clips les plus vus d'une chaîne Twitch ou Kick sur une période."""
     import yt_dlp
 
-    name = normalize_channel(channel)
-    rng = PERIODS.get(period, "7d")
-    url = f"https://www.twitch.tv/{name}/clips?filter=clips&range={rng}"
+    name = normalize_channel(channel, source)
+    if source == "kick":
+        url = f"https://kick.com/{name}/clips?sort=view&range={KICK_PERIODS.get(period, 'week')}"
+    else:
+        url = f"https://www.twitch.tv/{name}/clips?filter=clips&range={PERIODS.get(period, '7d')}"
     opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "playlistend": limit}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -298,7 +352,9 @@ def channel_clips(channel: str, period: str = "7j", limit: int = 30) -> list[dic
             "views": e.get("view_count"),
             "thumbnail": e.get("thumbnail"),
             "timestamp": e.get("timestamp"),
-            "channel": name,
+            "channel": e.get("channel") or name,
+            "game": (e.get("categories") or [None])[0],
+            "source": source,
         })
     out.sort(key=lambda c: -(c.get("views") or 0))
     return out
@@ -316,13 +372,17 @@ def _find_source(dest_dir: Path) -> str:
 
 
 _KNOWN_ERRORS = [
-    (r"subscriber-only|must be logged",
+    (r"impersonat|curl.?cffi",
+     "Kick bloque les téléchargements sans « imitation de navigateur ». Relance le lanceur ClipForge "
+     "(il installe le module curl_cffi) ou tape « pip install curl_cffi »."),
+    (r"subscriber-only|sub_only|must be logged",
      "cette vidéo est réservée aux abonnés. Si tu es abonné, choisis ton navigateur dans Réglages → "
-     "« Compte Twitch » (en étant connecté à Twitch dedans), puis réessaie."),
+     "« Compte Twitch / Kick » (en étant connecté dedans), puis réessaie."),
     (r"could not (?:find|copy|decrypt).*cookie|cookie.*(?:database|decrypt)",
-     "impossible de lire la connexion Twitch du navigateur choisi. Ferme-le et réessaie, ou choisis Firefox dans les Réglages."),
+     "impossible de lire la connexion du navigateur choisi. Ferme-le et réessaie, ou choisis Firefox dans les Réglages."),
     (r"does not exist|404|not found|Unable to find", "vidéo introuvable : vérifie le lien (le clip a peut-être été supprimé)."),
-    (r"Unsupported URL", "ce lien n'est pas reconnu. Colle le lien d'un clip ou d'une VOD Twitch."),
+    (r"Unsupported URL", "ce lien n'est pas reconnu. Colle le lien d'un clip ou d'une VOD Twitch ou Kick."),
+    (r"HTTP Error 403|Forbidden", "accès refusé par le site (protection anti-robots). Réessaie dans un instant."),
     (r"timed? ?out|Connection|getaddrinfo|Network", "problème de connexion Internet, réessaie dans un instant."),
     (r"geo|country", "cette vidéo n'est pas disponible dans ton pays."),
 ]

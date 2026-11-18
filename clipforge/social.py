@@ -114,14 +114,32 @@ HOOK_FALLBACK = {
     "fr": ["{s} ne s'attendait pas à ça", "Il a vraiment dit ça", "Le chat n'en revenait pas", "C'est pour ça qu'on aime {s}", "Personne ne l'avait vu venir"],
 }
 CTA = {
-    "en": ["Follow for daily {s} clips 🔔", "Follow for more clips like this 👀", "Follow for the best Twitch moments 🎮"],
-    "fr": ["Abonne-toi pour plus de clips de {s} 🔔", "Abonne-toi pour d'autres clips comme ça 👀", "Abonne-toi pour les meilleurs moments de Twitch 🎮"],
+    "en": ["Follow for daily {s} clips 🔔", "Follow for more clips like this 👀", "Follow for the best {p} moments 🎮"],
+    "fr": ["Abonne-toi pour plus de clips de {s} 🔔", "Abonne-toi pour d'autres clips comme ça 👀", "Abonne-toi pour les meilleurs moments de {p} 🎮"],
 }
 CREDIT = {
-    "en": "🎥 @{s} on Twitch (twitch.tv/{l})",
-    "fr": "🎥 Clip du live de {s} sur Twitch (twitch.tv/{l})",
+    "en": "🎥 @{s} on {p} ({u})",
+    "fr": "🎥 Clip du live de {s} sur {p} ({u})",
 }
-CREDIT_NO_CHANNEL = {"en": "🎥 Twitch clip", "fr": "🎥 Clip Twitch"}
+CREDIT_NO_CHANNEL = {"en": "🎥 {p} clip", "fr": "🎥 Clip {p}"}
+SOURCE_LABEL = {"twitch": "Twitch", "kick": "Kick"}
+
+
+def source_of_project(project: dict) -> str:
+    """Plateforme d'origine du clip : « twitch » ou « kick »."""
+    origin = project.get("origin") or {}
+    if origin.get("source") in SOURCE_LABEL:
+        return origin["source"]
+    return "kick" if "kick.com" in str(origin.get("url") or "") else "twitch"
+
+
+def _for_source(tag: str, source: str) -> str:
+    """#twitchclips → #kickclips, #twitchfr → #kickfr pour un clip Kick."""
+    return tag.replace("#twitch", "#kick") if source == "kick" else tag
+
+
+def _login(origin: dict) -> str:
+    return origin.get("login") or re.sub(r"[^a-z0-9_-]", "", (origin.get("channel") or "").lower())
 
 
 def slug_tag(text: str) -> str:
@@ -166,7 +184,8 @@ def pick_hashtags(project: dict, platform: str, lang: str, variant: int = 0) -> 
     game = origin.get("game")
     s_tag = slug_tag(channel)
     g_tags = game_tags(game)
-    broad = list(BROAD[lang][platform])
+    source = source_of_project(project)
+    broad = [_for_source(t, source) for t in BROAD[lang][platform]]
     if game and game.lower() not in NON_GAMING:
         broad.insert(1, "#gaming")
     # Rotation des hashtags larges selon la version demandée.
@@ -192,10 +211,23 @@ def pick_hashtags(project: dict, platform: str, lang: str, variant: int = 0) -> 
     return [{"tag": t, "kind": k, "why": WHY[k]["fr"]} for t, k in tags]  # explications pour toi : en français
 
 
+def is_junk_title(text: str | None) -> bool:
+    """Titres de clips inutilisables : « x », « ahaha », tapotage au clavier (« hcmmcgcgg »)…"""
+    letters = re.sub(r"[^A-Za-zÀ-ÿ]", "", text or "")
+    if len(re.sub(r"[^\w]", "", text or "")) < 4:
+        return True
+    words = re.findall(r"[A-Za-zÀ-ÿ]+", text or "")
+    if len(words) == 1 and len(letters) >= 7:
+        vowels = sum(1 for c in letters.lower() if c in "aeiouàâäéèêëîïôöùûü")
+        if vowels / len(letters) < 0.25:
+            return True
+    return False
+
+
 def _hook(project: dict, lang: str, variant: int) -> str:
     channel = (project.get("origin") or {}).get("channel") or ("le streamer" if lang == "fr" else "the streamer")
     hook = ((project.get("edit") or {}).get("title") or {}).get("text") or ""
-    if len(re.sub(r"[^\w]", "", hook)) < 4:  # titres de clips du genre « x » ou « ahaha »
+    if is_junk_title(hook):
         hook = HOOK_FALLBACK[lang][variant % len(HOOK_FALLBACK[lang])].format(s=channel)
     return hook.strip()
 
@@ -204,13 +236,14 @@ def youtube_tags(project: dict, lang: str) -> list[str]:
     origin = project.get("origin") or {}
     channel = origin.get("channel") or ""
     game = origin.get("game") or ""
+    src = source_of_project(project)
     words = []
     if channel:
-        words += [channel, f"{channel} clips", f"{channel} twitch"]
+        words += [channel, f"{channel} clips", f"{channel} {src}"]
         words += [f"{channel} funny moments"] if lang == "en" else [f"{channel} best of", f"{channel} moments drôles"]
     if game:
         words += [game, f"{game} clips"] + ([f"{game} funny moments"] if lang == "en" else [f"{game} fr"])
-    words += ["twitch clips", "twitch highlights", "streamer"] if lang == "en" else ["twitch fr", "clip twitch", "best of twitch"]
+    words += [f"{src} clips", f"{src} highlights", "streamer"] if lang == "en" else [f"{src} fr", f"clip {src}", f"best of {src}"]
     out, total = [], 0
     for w in _uniq(words):
         if total + len(w) + 1 > 480:
@@ -225,11 +258,13 @@ def publish_texts(project: dict, lang: str | None = None, variant: int = 0, prof
     lang = content_language(project, lang)
     origin = project.get("origin") or {}
     channel = origin.get("channel") or ""
-    login = channel.lower()
+    source = source_of_project(project)
+    label = SOURCE_LABEL[source]
+    url = ("kick.com/" if source == "kick" else "twitch.tv/") + _login(origin)
     hook = _hook(project, lang, variant)
     emoji = EMOJIS[variant % len(EMOJIS)]
-    credit = CREDIT[lang].format(s=channel, l=login) if channel else CREDIT_NO_CHANNEL[lang]
-    cta = CTA[lang][variant % len(CTA[lang])].format(s=channel or "Twitch")
+    credit = CREDIT[lang].format(s=channel, p=label, u=url) if channel else CREDIT_NO_CHANNEL[lang].format(p=label)
+    cta = CTA[lang][variant % len(CTA[lang])].format(s=channel or label, p=label)
     out: dict = {"lang": lang, "variant": variant, "platforms": {}}
     for platform in ("tiktok", "reels", "shorts", "youtube"):
         tags = pick_hashtags(project, platform, lang, variant)
@@ -248,7 +283,8 @@ def publish_texts(project: dict, lang: str | None = None, variant: int = 0, prof
             entry["title"] = f"{prefix}{hook} {emoji}"[:100]
             game = origin.get("game")
             ctx = (f"{channel} on {game}." if lang == "en" else f"{channel} sur {game}.") if channel and game else ""
-            sub = "Subscribe for more Twitch clips every week! 🔔" if lang == "en" else "Abonne-toi pour plus de clips Twitch chaque semaine ! 🔔"
+            sub = (f"Subscribe for more {label} clips every week! 🔔" if lang == "en"
+                   else f"Abonne-toi pour plus de clips {label} chaque semaine ! 🔔")
             entry["text"] = "\n".join([f"{hook} {emoji}", *([ctx] if ctx else []), "", credit, sub, "", tag_line])
             entry["tags"] = youtube_tags(project, lang)
         out["platforms"][platform] = entry
@@ -273,9 +309,11 @@ def publish_txt(texts: dict, platform: str) -> str:
 
 def library_stats(projects_list: list[dict]) -> dict:
     """Ce que tu clippes le plus : chaînes, jeux, langues, formats exportés."""
-    channels, games, langs, exports = Counter(), Counter(), Counter(), Counter()
+    channels, games, langs, exports, sources = Counter(), Counter(), Counter(), Counter(), Counter()
     for p in projects_list:
         o = p.get("origin") or {}
+        if o.get("channel"):
+            sources[source_of_project(p)] += 1
         if o.get("channel"):
             channels[o["channel"]] += 1
         if o.get("game"):
@@ -292,6 +330,7 @@ def library_stats(projects_list: list[dict]) -> dict:
         "games": games.most_common(8),
         "languages": langs.most_common(3),
         "exports": dict(exports),
+        "sources": dict(sources),
     }
 
 
@@ -322,30 +361,35 @@ def generate_bios(profile: dict) -> dict:
     name = (profile.get("account_name") or "").strip()
     link = (profile.get("link") or "").strip()
     freq = profile.get("frequency") or ("daily" if lang == "en" else "chaque jour")
+    plats = profile.get("platforms") if profile.get("platforms") in ("twitch", "kick", "both") else "twitch"
+    P = {"twitch": "Twitch", "kick": "Kick", "both": "Twitch & Kick" if lang == "en" else "Twitch et Kick"}[plats]
+    P1 = "Kick" if plats == "kick" else "Twitch"  # pour les phrases courtes
     s1, s2, s3 = _join(streamers, lang, 1), _join(streamers, lang, 2), _join(streamers, lang, 3)
     g1, g2 = _join(games, lang, 1), _join(games, lang, 2)
     who = s2 or ("your favorite streamers" if lang == "en" else "tes streamers préférés")
-    who1 = s1 or ("Twitch" if lang == "en" else "Twitch")
+    who1 = s1 or P1
+    main_tags = {"twitch": ["#twitchclips"], "kick": ["#kickclips"], "both": ["#twitchclips", "#kickclips"]}[plats]
+    fr_tags = {"twitch": ["#twitchfr"], "kick": ["#kickfr"], "both": ["#twitchfr", "#kickfr"]}[plats]
 
     if lang == "en":
         tiktok = [
             f"Best {who} clips 🎬 New every day",
             f"Daily {who1} clips 💀 Follow for more",
             f"{who} moments you missed 👀",
-            f"{g1} clips from {who1} 🎮 Daily" if g1 else "Twitch moments you missed 👀 Daily",
-            "Your daily dose of Twitch 🎬🔥",
+            f"{g1} clips from {who1} 🎮 Daily" if g1 else f"{P} moments you missed 👀 Daily",
+            f"Your daily dose of {P} 🎬🔥",
         ]
         insta = [
-            f"🎬 Best {who} clips\n{'🎮 ' + g2 + chr(10) if g2 else ''}🔔 New clips {freq}\n{'👇 ' + link if link else '#twitchclips #streamer'}",
-            f"Twitch moments you missed 👀\n{'Clips of ' + s3 + chr(10) if s3 else ''}Posting {freq} 🔥\n{link or '#twitchclips'}",
+            f"🎬 Best {who} clips\n{'🎮 ' + g2 + chr(10) if g2 else ''}🔔 New clips {freq}\n{'👇 ' + link if link else main_tags[0] + ' #streamer'}",
+            f"{P} moments you missed 👀\n{'Clips of ' + s3 + chr(10) if s3 else ''}Posting {freq} 🔥\n{link or main_tags[0]}",
             f"{name + ' | ' if name else ''}{who1} clips 💀\n🎮 {g1 or 'Gaming'} • 🔔 {freq}\n{link}",
         ]
         yt = (
             f"Welcome{' to ' + name if name else ''}! 🎬\n\n"
-            f"Here you'll find the best and funniest clips from {s3 or 'Twitch streamers'}"
+            f"Here you'll find the best and funniest clips from {s3 or P + ' streamers'}"
             f"{' playing ' + g2 if g2 else ''}, edited for you {freq}.\n\n"
             "🔔 Subscribe and turn on notifications so you never miss a moment.\n"
-            "🎥 All clips are credited to their streamers. Go support them on Twitch!\n"
+            f"🎥 All clips are credited to their streamers. Go support them on {P}!\n"
             f"{chr(10) + '📩 ' + link if link else ''}"
         )
     else:
@@ -353,29 +397,30 @@ def generate_bios(profile: dict) -> dict:
             f"Les meilleurs clips de {who} 🎬",
             f"Clips de {who1} {freq} 💀",
             f"Les moments de {who} que t'as ratés 👀",
-            f"Clips {g1} de {who1} 🎮" if g1 else "Les moments Twitch que t'as ratés 👀",
-            "Ta dose quotidienne de Twitch 🎬🔥",
+            f"Clips {g1} de {who1} 🎮" if g1 else f"Les moments {P1} que t'as ratés 👀",
+            f"Ta dose quotidienne de {P} 🎬🔥",
         ]
         insta = [
-            f"🎬 Les meilleurs clips de {who}\n{'🎮 ' + g2 + chr(10) if g2 else ''}🔔 Nouveaux clips {freq}\n{'👇 ' + link if link else '#twitchfr #clipfr'}",
-            f"Les moments Twitch que t'as ratés 👀\n{'Clips de ' + s3 + chr(10) if s3 else ''}Un clip {freq} 🔥\n{link or '#twitchfr'}",
+            f"🎬 Les meilleurs clips de {who}\n{'🎮 ' + g2 + chr(10) if g2 else ''}🔔 Nouveaux clips {freq}\n{'👇 ' + link if link else fr_tags[0] + ' #clipfr'}",
+            f"Les moments {P} que t'as ratés 👀\n{'Clips de ' + s3 + chr(10) if s3 else ''}Un clip {freq} 🔥\n{link or fr_tags[0]}",
             f"{name + ' | ' if name else ''}Clips de {who1} 💀\n🎮 {g1 or 'Gaming'} • 🔔 {freq}\n{link}",
         ]
         yt = (
             f"Bienvenue{' sur ' + name if name else ''} ! 🎬\n\n"
-            f"Ici tu trouveras les meilleurs clips et les moments les plus drôles de {s3 or 'tes streamers Twitch'}"
+            f"Ici tu trouveras les meilleurs clips et les moments les plus drôles de {s3 or 'tes streamers ' + P}"
             f"{' sur ' + g2 if g2 else ''}, montés pour toi {freq}.\n\n"
             "🔔 Abonne-toi et active la cloche pour ne rien rater.\n"
-            "🎥 Tous les clips sont crédités : va soutenir les streamers sur Twitch !\n"
+            f"🎥 Tous les clips sont crédités : va soutenir les streamers sur {P} !\n"
             f"{chr(10) + '📩 ' + link if link else ''}"
         )
 
     niche = _uniq([slug_tag(s) for s in streamers[:3]] + [slug_tag(s) + "clips" for s in streamers[:2] if slug_tag(s)]
                   + [t for g in games[:2] for t in game_tags(g)[:1]])
-    broad = ["#twitchclips", "#streamer", "#gaming"] if lang == "en" else ["#twitchfr", "#clipfr", "#streamerfr"]
+    broad = main_tags + ["#streamer", "#gaming"] if lang == "en" else fr_tags + ["#clipfr", "#streamerfr"]
+    src_words = {"twitch": ["twitch"], "kick": ["kick"], "both": ["twitch", "kick"]}[plats]
     keywords = _uniq(streamers[:3] + [f"{s} clips" for s in streamers[:2]] + games[:2]
-                     + (["twitch clips", "twitch highlights", "funny moments"] if lang == "en"
-                        else ["clips twitch", "best of twitch", "twitch fr"]))
+                     + ([f"{w} clips" for w in src_words] + [f"{src_words[0]} highlights", "funny moments"] if lang == "en"
+                        else [f"clips {w}" for w in src_words] + [f"best of {src_words[0]}", f"{src_words[0]} fr"]))
     return {
         "lang": lang,
         "tiktok": _fit(tiktok, BIO_LIMITS["tiktok"]),

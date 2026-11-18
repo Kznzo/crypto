@@ -39,11 +39,13 @@ def start_import_url(
         def apply_meta(p: dict) -> None:
             p["title"] = meta.get("title") or p["title"]
             p["origin"].update({k: v for k, v in meta.items() if v})
-            # Le titre d'un live complet est souvent trop long pour servir d'accroche.
-            if not meta.get("vod_range"):
+            # Le titre d'un live complet est souvent trop long pour servir d'accroche,
+            # et beaucoup de titres de clips sont tapés au hasard : dans ces cas, pas de titre incrusté.
+            if not meta.get("vod_range") and not social.is_junk_title(p["title"]):
                 p["edit"]["title"]["text"] = p["title"]
             if meta.get("channel") and not p["edit"]["watermark"].get("text"):
-                p["edit"]["watermark"]["text"] = f"twitch.tv/{meta['channel'].lower()}"
+                login = meta.get("login") or meta["channel"].lower()
+                p["edit"]["watermark"]["text"] = twitch.channel_url(meta.get("source", "twitch"), login)
                 p["edit"]["watermark"]["enabled"] = True
 
         projects.mutate(pid, apply_meta)
@@ -119,11 +121,13 @@ def start_transcribe(pid: str) -> Job:
         spoken = caps.get("spoken") or "auto"
         if spoken == "auto":
             # Twitch indique la langue de la chaîne : plus fiable que deviner sur 20 secondes de son.
-            # Sinon, langue par défaut des réglages, sinon détection par l'IA.
-            twitch_lang = str((p.get("origin") or {}).get("language") or "").lower()[:2]
-            if twitch_lang in captions.LANGUAGES:
-                spoken = twitch_lang
-            else:
+            # Clip Kick (ou Twitch sans langue) : l'IA détecte la langue toute seule.
+            # Fichier envoyé : langue par défaut des réglages.
+            origin = p.get("origin") or {}
+            channel_lang = str(origin.get("language") or "").lower()[:2]
+            if channel_lang in captions.LANGUAGES:
+                spoken = channel_lang
+            elif origin.get("source") not in ("twitch", "kick"):
                 spoken = settings.get("language", "auto")
         transcript = captions.transcribe(src, start, end, settings.get("whisper_model", "small"),
                                          spoken, prog, translate_to_english=bool(caps.get("english")))

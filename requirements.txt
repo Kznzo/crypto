@@ -2,6 +2,8 @@ fastapi>=0.110
 uvicorn>=0.27
 python-multipart>=0.0.9
 yt-dlp>=2025.1.0
+# Kick bloque les robots : yt-dlp a besoin de curl_cffi pour imiter un navigateur.
+curl_cffi>=0.10
 opencv-python-headless>=4.8
 numpy>=1.24
 pillow>=10.1

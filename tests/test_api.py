@@ -49,3 +49,4 @@ def test_bad_inputs():
     assert r.status_code == 400
     assert local.get("/api/projects/../../etc").status_code == 404
     assert local.get("/api/projects/inexistant1").status_code == 404
+    assert local.get("/api/channel-clips?channel=xqc&source=youtube").status_code == 400

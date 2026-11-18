@@ -133,3 +133,17 @@ def test_sanitize_edit_clamps_values():
     assert out["title"]["text"] == "b"
     assert "evil" not in out
     assert out["end"] == 30
+
+
+def test_kick_links():
+    assert twitch.source_of("https://kick.com/xqc/clips/clip_01M76VP53ZKBQB80E9SPBG9YCY") == "kick"
+    assert twitch.source_of("kick.com/xqc?clip=clip_01ABC") == "kick"
+    assert twitch.source_of("https://clips.twitch.tv/AbcDef") == "twitch"
+    assert twitch.source_of("https://example.com/video.mp4") == "autre"
+    assert twitch.is_vod_url("https://kick.com/xqc/videos/01a1ed57-2610-76fd-8ff7-96c8cbb0c1f4")
+    assert not twitch.is_vod_url("https://kick.com/xqc/clips/clip_01M76VP53ZKBQB80E9SPBG9YCY")
+    assert twitch.normalize_channel("https://kick.com/adin-ross", "kick") == "adin-ross"
+    assert twitch.channel_url("kick", "xqc") == "kick.com/xqc"
+    meta = twitch._meta({"channel": "xQc", "uploader_id": "xqc", "categories": ["Just Chatting"],
+                         "webpage_url": "https://kick.com/xqc/clips/clip_1"})
+    assert (meta["source"], meta["login"], meta["game"]) == ("kick", "xqc", "Just Chatting")
