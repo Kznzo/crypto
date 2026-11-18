@@ -111,7 +111,7 @@ Depuis un clip : onglet Exporter → « Ajouter à une compilation ».
 
 1. Installe Python 3.10 ou plus récent ([python.org](https://www.python.org/downloads/)).
 2. Télécharge et décompresse le projet.
-3. macOS : double-clique sur **`Lancer-ClipForge.command`** (la première fois : clic droit → Ouvrir).
+3. macOS : double-clique sur **`Lancer-ClipForge.command`** (la première fois : clic droit → **Ouvrir**, puis **Ouvrir** dans la fenêtre d'avertissement). Laisse la fenêtre du Terminal ouverte pendant que tu utilises l'appli.
    Linux : lance `./lancer-clipforge.sh` dans un terminal.
 
 ---
@@ -158,6 +158,9 @@ Utilise le mode **Live** : ClipForge clippe directement pendant le live, ou pren
 
 **« Cette vidéo est réservée aux abonnés ».**
 Beaucoup de streamers réservent leurs VOD aux abonnés. Si tu es abonné, va dans **Réglages → Compte Twitch**, choisis le navigateur où tu es connecté à Twitch (Firefox conseillé), puis réessaie.
+
+**« CERTIFICATE_VERIFY_FAILED » / « unable to get local issuer certificate ».**
+Ça arrive avec le Python de python.org sur Mac, ou avec un antivirus qui inspecte le HTTPS sur Windows. Depuis la version du 18/11, ClipForge utilise les certificats du système : relance simplement le lanceur (il installe ce qu'il faut). Sur Mac, tu peux aussi double-cliquer sur *Applications → Python 3.x → Install Certificates.command*.
 
 **Mes emojis n'apparaissent pas sur la vidéo.**
 Les polices incrustées n'ont pas d'emojis : ils sont retirés de l'image, mais gardés dans la description proposée.

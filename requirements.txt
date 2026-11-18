@@ -7,3 +7,6 @@ numpy>=1.24
 pillow>=10.1
 imageio-ffmpeg>=0.5
 qrcode>=7.4
+# Certificats HTTPS : évite « CERTIFICATE_VERIFY_FAILED » (Python de python.org sur Mac, antivirus sur Windows).
+truststore>=0.9
+certifi
