@@ -270,7 +270,6 @@ main { max-width: 1440px; margin: 0 auto; padding: 22px 20px 80px; }
 .tag.streamer { border-color: rgba(192, 132, 252, 0.6); color: #e4ccff; }
 .tag.jeu { border-color: rgba(52, 211, 153, 0.6); color: #b5f5dc; }
 .tag.niche { border-color: rgba(251, 191, 36, 0.6); color: #fde7a7; }
-.tag.origine { border-color: rgba(244, 114, 182, 0.6); color: #fbcfe8; }
 .tag.large { border-color: rgba(96, 165, 250, 0.6); color: #cfe2ff; }
 .tag.format { border-color: rgba(248, 113, 113, 0.6); color: #fecaca; }
 .bio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }

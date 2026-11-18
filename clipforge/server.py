@@ -229,7 +229,7 @@ async def create_from_url(request: Request):
     data = await request.json()
     url = (data.get("url") or "").strip()
     if not re.match(r"^https?://", url):
-        if re.match(r"^(www\.|m\.)?((clips\.)?twitch\.tv|youtube\.com|youtu\.be)/", url):
+        if re.match(r"^(www\.)?(clips\.)?twitch\.tv/", url):
             url = "https://" + url
         else:
             raise HTTPException(400, "Colle un lien qui commence par https://")
@@ -305,10 +305,7 @@ def subtitles_srt(pid: str, platform: str = "youtube"):
 
 def _suggested_profile(stats: dict) -> dict:
     langs = [lang for lang, _ in stats["languages"]]
-    sources = stats.get("sources") or {}
-    platforms = "both" if len(sources) > 1 else ("youtube" if "youtube" in sources else "twitch")
     return {
-        "platforms": platforms,
         "account_name": "",
         "streamers": [c for c, _ in stats["channels"][:3]],
         "games": [g for g, _ in stats["games"][:2]],
@@ -342,7 +339,6 @@ async def post_bios(request: Request):
         "streamers": as_list(raw.get("streamers")),
         "games": as_list(raw.get("games")),
         "lang": "fr" if raw.get("lang") == "fr" else "en",
-        "platforms": raw.get("platforms") if raw.get("platforms") in ("twitch", "youtube", "both") else "twitch",
         "link": str(raw.get("link") or "")[:100],
         "frequency": str(raw.get("frequency") or "")[:30],
     }
@@ -545,10 +541,8 @@ def cancel_job(job_id: str):
 
 
 @app.get("/api/channel-clips")
-def channel_clips(channel: str, period: str = "7j", source: str = "twitch"):
-    if source not in sources.SOURCES:
-        raise HTTPException(400, "Plateforme inconnue")
+def channel_clips(channel: str, period: str = "7j"):
     try:
-        return sources.channel_clips(channel, period, source=source)
+        return sources.channel_clips(channel, period)
     except sources.DownloadError as exc:
         raise HTTPException(400, str(exc)) from None

@@ -135,24 +135,10 @@ def test_sanitize_edit_clamps_values():
     assert out["end"] == 30
 
 
-def test_youtube_links():
-    assert sources.source_of("https://www.youtube.com/shorts/kPI9Mc35mOg") == "youtube"
-    assert sources.source_of("youtu.be/kPI9Mc35mOg") == "youtube"
+def test_twitch_links():
     assert sources.source_of("https://clips.twitch.tv/AbcDef") == "twitch"
-    assert sources.source_of("https://example.com/video.mp4") == "autre"
-    assert sources.normalize_channel("MrBeast", "youtube") == "@MrBeast"
-    assert sources.normalize_channel("https://www.youtube.com/@MrBeast/shorts", "youtube") == "@MrBeast"
-    assert sources.normalize_channel("UCX6OQ3DkcsbYNE6H8uQQuVA", "youtube") == "channel/UCX6OQ3DkcsbYNE6H8uQQuVA"
-    with pytest.raises(sources.DownloadError):
-        sources.normalize_channel("pas valide !", "youtube")
-    assert sources.channel_url("youtube", "@MrBeast") == "youtube.com/@MrBeast"
-    assert sources.clean_title("Trap Door Roulette #shorts #funny") == "Trap Door Roulette"
-    meta = sources._meta({
-        "title": "Trap Door Roulette #shorts #challenge", "channel": "MrBeast", "uploader_id": "@MrBeast",
-        "language": "en", "categories": ["Entertainment"], "tags": ["mrbeast", "Trap Door"],
-        "description": "New video! #MrBeast #challenge", "webpage_url": "https://www.youtube.com/watch?v=kPI9Mc35mOg",
-    })
-    assert (meta["source"], meta["login"], meta["title"], meta["language"]) == ("youtube", "@MrBeast", "Trap Door Roulette", "en")
-    assert meta["game"] is None
-    assert meta["tags"][:2] == ["challenge", "mrbeast"]
-    assert "shorts" not in meta["tags"]
+    assert sources.source_of("https://www.youtube.com/shorts/kPI9Mc35mOg") == "autre"
+    assert sources.channel_url("twitch", "zerator") == "twitch.tv/zerator"
+    meta = sources._meta({"channel": "ZeratoR", "categories": ["Just Chatting"],
+                          "webpage_url": "https://www.twitch.tv/zerator/clip/AbcDef"})
+    assert (meta["source"], meta["login"], meta["game"]) == ("twitch", "zerator", "Just Chatting")

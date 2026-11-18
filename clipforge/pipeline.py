@@ -121,13 +121,13 @@ def start_transcribe(pid: str) -> Job:
         spoken = caps.get("spoken") or "auto"
         if spoken == "auto":
             # Twitch indique la langue de la chaîne : plus fiable que deviner sur 20 secondes de son.
-            # YouTube donne souvent la langue ; sinon l'IA la détecte toute seule.
+            # Clip Twitch sans langue indiquée : l'IA la détecte toute seule.
             # Fichier envoyé : langue par défaut des réglages.
             origin = p.get("origin") or {}
             channel_lang = str(origin.get("language") or "").lower()[:2]
             if channel_lang in captions.LANGUAGES:
                 spoken = channel_lang
-            elif origin.get("source") not in ("twitch", "youtube"):
+            elif origin.get("source") != "twitch":
                 spoken = settings.get("language", "auto")
         transcript = captions.transcribe(src, start, end, settings.get("whisper_model", "small"),
                                          spoken, prog, translate_to_english=bool(caps.get("english")))

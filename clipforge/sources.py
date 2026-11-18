@@ -1,9 +1,7 @@
-"""Récupération des vidéos avec yt-dlp : clips et VOD Twitch, YouTube Shorts."""
+"""Récupération des vidéos Twitch avec yt-dlp : clips, passages de VOD, clips populaires d'une chaîne."""
 from __future__ import annotations
 
-import functools
 import re
-import shutil
 from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -11,11 +9,8 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from .ffmpeg_utils import ffmpeg_path
 
 CHANNEL_RE = re.compile(r"^[A-Za-z0-9_]{2,25}$")
-YT_HANDLE_RE = re.compile(r"^@[\w.\-]{3,30}$")
-YT_CHANNEL_ID_RE = re.compile(r"^UC[\w-]{22}$")
 PERIODS = {"24h": "24hr", "7j": "7d", "30j": "30d", "tout": "all"}
-SOURCES = {"twitch": "Twitch", "youtube": "YouTube"}
-MAX_YOUTUBE_SECONDS = 20 * 60  # au-delà, ce n'est plus un Short à remonter
+SOURCES = {"twitch": "Twitch"}
 
 
 class DownloadError(RuntimeError):
@@ -23,18 +18,12 @@ class DownloadError(RuntimeError):
 
 
 def source_of(url: str) -> str:
-    """« twitch », « youtube » ou « autre » selon le lien."""
+    """« twitch » ou « autre » selon le lien."""
     host = urlparse(url if "://" in url else "https://" + url).netloc.lower()
-    if host.endswith("twitch.tv"):
-        return "twitch"
-    if host.endswith(("youtube.com", "youtu.be")):
-        return "youtube"
-    return "autre"
+    return "twitch" if host.endswith("twitch.tv") else "autre"
 
 
 def channel_url(source: str, login: str) -> str:
-    if source == "youtube":
-        return f"youtube.com/{login}"
     return f"twitch.tv/{login}"
 
 
@@ -61,22 +50,7 @@ def parse_time(value: str | float | int | None) -> float | None:
 
 
 def normalize_channel(value: str, source: str = "twitch") -> str:
-    """Nom de chaîne Twitch (« zerator ») ou YouTube (« @MrBeast » ou « channel/UC… »)."""
     value = (value or "").strip()
-    if source == "youtube":
-        if "youtube.com" in value:
-            path = urlparse(value if "://" in value else "https://" + value).path.strip("/").split("/")
-            value = "/".join(path[:2]) if path and path[0] in ("channel", "c", "user") else (path[0] if path else "")
-        if value.startswith("channel/") and YT_CHANNEL_ID_RE.match(value[8:]):
-            return value
-        if YT_CHANNEL_ID_RE.match(value):
-            return f"channel/{value}"
-        if value.startswith(("c/", "user/")) and re.match(r"^[\w.\-]{2,40}$", value.split("/", 1)[1]):
-            return value
-        handle = value if value.startswith("@") else f"@{value}"
-        if not YT_HANDLE_RE.match(handle):
-            raise DownloadError("Nom de chaîne YouTube invalide (exemple : @MrBeast).")
-        return handle
     if "twitch.tv" in value:
         path = urlparse(value if "://" in value else "https://" + value).path.strip("/")
         value = path.split("/")[0] if path else ""
@@ -97,20 +71,6 @@ def vod_start_from_url(url: str) -> float | None:
     return None
 
 
-@functools.lru_cache(maxsize=1)
-def deno_path() -> str | None:
-    """Moteur JavaScript dont yt-dlp a besoin pour YouTube (installé avec « pip install deno »)."""
-    try:
-        import deno
-
-        path = deno.find_deno_bin()
-        if path and Path(path).exists():
-            return str(path)
-    except Exception:
-        pass
-    return shutil.which("deno")
-
-
 def _base_opts(on_progress: Callable[[float, str], None] | None) -> dict:
     def hook(d: dict) -> None:
         if not on_progress:
@@ -123,7 +83,7 @@ def _base_opts(on_progress: Callable[[float, str], None] | None) -> dict:
         elif d.get("status") == "finished":
             on_progress(0.99, "Téléchargement terminé")
 
-    opts = {
+    return {
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
@@ -133,54 +93,23 @@ def _base_opts(on_progress: Callable[[float, str], None] | None) -> dict:
         "retries": 3,
         "socket_timeout": 30,
     }
-    deno = deno_path()
-    if deno:
-        opts["js_runtimes"] = {"deno": {"path": deno}}
-    return opts
-
-
-HASHTAG_RE = re.compile(r"#([^\s#.,!?;:]+)")
-
-
-def clean_title(title: str) -> str:
-    """Retire les #hashtags d'un titre (« Trap Door Roulette #shorts » → « Trap Door Roulette »)."""
-    return re.sub(r"\s{2,}", " ", HASHTAG_RE.sub("", title or "")).strip(" -|")
 
 
 def _meta(info: dict, url: str = "") -> dict:
-    source = source_of(info.get("webpage_url") or url)
     channel = info.get("creator") or info.get("channel") or info.get("uploader") or ""
     categories = info.get("categories") or []
-    raw_title = (info.get("title") or "Clip").strip()
-    if source == "youtube":
-        login = info.get("uploader_id") or (f"channel/{info['channel_id']}" if info.get("channel_id") else "")
-        # Hashtags déjà utilisés par le créateur du Short (titre, description, tags).
-        found = HASHTAG_RE.findall(f"{raw_title} {info.get('description') or ''}")
-        found += [t.replace(" ", "") for t in (info.get("tags") or [])]
-        tags = []
-        for t in found:
-            t = t.lower()
-            if t not in ("shorts", "short", "youtube", "youtubeshorts") and t not in tags and 2 <= len(t) <= 30:
-                tags.append(t)
-        title = clean_title(raw_title) or raw_title
-        game = None  # les catégories YouTube (« Gaming », « Entertainment ») ne sont pas des jeux
-    else:
-        login = re.sub(r"[^a-z0-9_]", "", channel.lower())
-        tags = []
-        title = raw_title
-        game = categories[0] if categories else None
+    login = re.sub(r"[^a-z0-9_]", "", channel.lower())
     return {
-        "title": title,
+        "title": (info.get("title") or "Clip").strip(),
         "channel": channel,
         "login": login or None,
-        "source": source,
+        "source": source_of(info.get("webpage_url") or url),
         "duration": info.get("duration"),
         "url": info.get("webpage_url") or info.get("original_url"),
         "views": info.get("view_count"),
         "thumbnail": info.get("thumbnail"),
-        "game": game,
+        "game": categories[0] if categories else None,
         "language": (info.get("language") or "").lower()[:2] or None,
-        "tags": tags[:5],
     }
 
 
@@ -220,19 +149,14 @@ COOKIE_BROWSERS = ("firefox", "chrome", "edge", "brave", "opera", "vivaldi", "ch
 
 
 def _with_cookies(opts: dict, cookies_browser: str | None) -> dict:
-    """Utilise la session Twitch / YouTube d'un navigateur (VOD abonnés, contrôle « pas un robot »)."""
+    """Utilise la session Twitch d'un navigateur (pour les VOD réservées aux abonnés)."""
     if cookies_browser in COOKIE_BROWSERS:
         opts["cookiesfrombrowser"] = (cookies_browser,)
     return opts
 
 
-FORMATS = {
-    # Twitch : version paysage d'origine (on évite les formats « portrait » recadrés par Twitch).
-    "twitch": "best[height<=?1080][format_id!^=portrait]/bestvideo[height<=?1080]+bestaudio/best[height<=?1080]/best",
-    # YouTube : vidéo et son séparés, H.264 de préférence (aperçu lisible partout), 1080 de large max
-    # (un Short vertical fait 1080 × 1920).
-    "youtube": "bv*[vcodec^=avc1][height<=?1920][width<=?1920]+ba[ext=m4a]/bv*[height<=?1920][width<=?1920]+ba/b",
-}
+# Version paysage d'origine (on évite les formats « portrait » recadrés par Twitch).
+CLIP_FORMAT = "best[height<=?1080][format_id!^=portrait]/bestvideo[height<=?1080]+bestaudio/best[height<=?1080]/best"
 
 
 def download_clip(
@@ -243,28 +167,16 @@ def download_clip(
 ) -> tuple[str, dict]:
     import yt_dlp
 
-    source = source_of(url)
     opts = _with_cookies(_base_opts(on_progress), cookies_browser)
     opts.update({
-        "format": FORMATS.get(source, FORMATS["twitch"]),
+        "format": CLIP_FORMAT,
         "merge_output_format": "mp4",
         "outtmpl": {"default": str(dest_dir / "source.%(ext)s")},
     })
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            if source == "youtube":
-                info = ydl.extract_info(url, download=False)
-                if (info.get("duration") or 0) > MAX_YOUTUBE_SECONDS:
-                    raise DownloadError(
-                        "cette vidéo YouTube dure plus de 20 minutes. ClipForge sert à remonter des Shorts "
-                        "et des vidéos courtes : télécharge-la puis envoie seulement le passage voulu (onglet « Fichier vidéo »)."
-                    )
-                info = ydl.process_ie_result(info, download=True)
-            else:
-                info = ydl.extract_info(url, download=True)
+            info = ydl.extract_info(url, download=True)
             extra = _twitch_extra(ydl, url)
-    except DownloadError as exc:
-        raise DownloadError(f"Téléchargement impossible : {exc}") from exc
     except Exception as exc:
         raise DownloadError(f"Téléchargement impossible : {_short_error(exc)}") from exc
     file = _find_source(dest_dir)
@@ -388,48 +300,34 @@ def _fetch(ydl, url: str, fmt: dict) -> bytes:
     return ydl.urlopen(Request(url, headers=dict(fmt.get("http_headers") or {}))).read()
 
 
-def channel_clips(channel: str, period: str = "7j", limit: int = 30, source: str = "twitch") -> list[dict]:
-    """Clips les plus vus d'une chaîne Twitch (sur une période) ou Shorts les plus vus d'une chaîne YouTube."""
+def channel_clips(channel: str, period: str = "7j", limit: int = 30) -> list[dict]:
+    """Liste les clips les plus vus d'une chaîne Twitch sur une période."""
     import yt_dlp
 
-    name = normalize_channel(channel, source)
-    if source == "youtube":
-        # YouTube ne permet pas de filtrer par date : on prend les derniers Shorts et on trie par vues.
-        url = f"https://www.youtube.com/{name}/shorts"
-        fetch = limit * 2
-    else:
-        url = f"https://www.twitch.tv/{name}/clips?filter=clips&range={PERIODS.get(period, '7d')}"
-        fetch = limit
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "playlistend": fetch}
-    deno = deno_path()
-    if deno:
-        opts["js_runtimes"] = {"deno": {"path": deno}}
+    name = normalize_channel(channel)
+    url = f"https://www.twitch.tv/{name}/clips?filter=clips&range={PERIODS.get(period, '7d')}"
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "playlistend": limit}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
-        raise DownloadError(f"Impossible de lister les vidéos : {_short_error(exc)}") from exc
-    owner = (info or {}).get("channel") or (info or {}).get("uploader") or name
+        raise DownloadError(f"Impossible de lister les clips : {_short_error(exc)}") from exc
     out = []
-    for e in (info or {}).get("entries", [])[:fetch]:
+    for e in (info or {}).get("entries", [])[:limit]:
         if not e or not e.get("url"):
             continue
-        thumb = e.get("thumbnail")
-        if not thumb and e.get("thumbnails"):
-            thumb = e["thumbnails"][-1].get("url")
         out.append({
             "url": e["url"],
-            "title": (clean_title(e.get("title") or "") if source == "youtube" else e.get("title")) or "Clip",
+            "title": e.get("title") or "Clip",
             "duration": e.get("duration"),
             "views": e.get("view_count"),
-            "thumbnail": thumb,
+            "thumbnail": e.get("thumbnail"),
             "timestamp": e.get("timestamp"),
-            "channel": e.get("channel") or (owner if source == "youtube" else name),
-            "game": (e.get("categories") or [None])[0] if source == "twitch" else None,
-            "source": source,
+            "channel": e.get("channel") or name,
+            "game": (e.get("categories") or [None])[0],
         })
     out.sort(key=lambda c: -(c.get("views") or 0))
-    return out[:limit]
+    return out
 
 
 def _find_source(dest_dir: Path) -> str:
@@ -444,22 +342,14 @@ def _find_source(dest_dir: Path) -> str:
 
 
 _KNOWN_ERRORS = [
-    (r"not a bot|confirm your age|Sign in to confirm",
-     "YouTube demande de se connecter (contrôle anti-robots ou vidéo pour adultes). Dans Réglages → "
-     "« Compte Twitch / YouTube », choisis le navigateur où tu es connecté à YouTube, puis réessaie."),
-    (r"JavaScript runtime|\bdeno\b|n challenge|signature",
-     "YouTube a besoin du module « deno ». Relance le lanceur ClipForge (il l'installe) ou tape « pip install deno »."),
-    (r"subscriber-only|members-only|must be logged",
-     "cette vidéo est réservée aux abonnés / membres. Si tu l'es, choisis ton navigateur dans Réglages → "
-     "« Compte Twitch / YouTube » (en étant connecté dedans), puis réessaie."),
+    (r"subscriber-only|must be logged",
+     "cette vidéo est réservée aux abonnés. Si tu es abonné, choisis ton navigateur dans Réglages → "
+     "« Compte Twitch » (en étant connecté à Twitch dedans), puis réessaie."),
     (r"could not (?:find|copy|decrypt).*cookie|cookie.*(?:database|decrypt)",
-     "impossible de lire la connexion du navigateur choisi. Ferme-le et réessaie, ou choisis Firefox dans les Réglages."),
-    (r"Private video|Video unavailable|does not exist|404|not found|Unable to find",
-     "vidéo introuvable ou privée : vérifie le lien (elle a peut-être été supprimée)."),
-    (r"Unsupported URL", "ce lien n'est pas reconnu. Colle le lien d'un clip Twitch, d'une VOD Twitch ou d'un YouTube Short."),
-    (r"HTTP Error 403|Forbidden",
-     "accès refusé par le site (protection anti-robots). Réessaie dans un instant ; si ça continue avec YouTube, "
-     "choisis le navigateur où tu es connecté à YouTube dans Réglages → « Compte Twitch / YouTube »."),
+     "impossible de lire la connexion Twitch du navigateur choisi. Ferme-le et réessaie, ou choisis Firefox dans les Réglages."),
+    (r"does not exist|404|not found|Unable to find", "vidéo introuvable : vérifie le lien (le clip a peut-être été supprimé)."),
+    (r"Unsupported URL", "ce lien n'est pas reconnu. Colle le lien d'un clip ou d'une VOD Twitch."),
+    (r"HTTP Error 403|Forbidden", "accès refusé par Twitch. Réessaie dans un instant."),
     (r"timed? ?out|Connection|getaddrinfo|Network", "problème de connexion Internet, réessaie dans un instant."),
     (r"geo|country", "cette vidéo n'est pas disponible dans ton pays."),
 ]
