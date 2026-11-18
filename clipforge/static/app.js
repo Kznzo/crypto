@@ -241,7 +241,8 @@ function HomeView() {
   let destroyed = false;
 
   app.innerHTML = `
-    <section class="card hero">
+    <section class="card clipit" id="clipit"></section>
+    <section class="card hero" style="margin-top:18px">
       <div>
         <h1>Tes clips Twitch, prêts pour TikTok, Reels, YouTube Shorts et YouTube</h1>
         <p class="lead">Colle le lien d'un clip Twitch (en anglais ou en français) : ClipForge détecte la facecam, recadre en vertical, ajoute des sous-titres animés (en anglais ou dans la langue du clip) et un titre accrocheur, exporte dans tous les formats et te prépare les descriptions avec hashtags.</p>
@@ -515,10 +516,61 @@ function HomeView() {
     tab = b.dataset.tab; store.set('tab', tab); renderTab();
   });
 
+  // ---- Bouton CLIP IT (pilote automatique) ----
+  let pilotTimer = null;
+  let pilotOpts = store.get('pilotOpts', { lang: (SETTINGS && SETTINGS.discover_lang) || 'en', streams: 5, auto: true });
+  const stateIcon = { direct: '🔴', attente: '⌛', pause_jeu: '⏸', erreur: '⚠️', demarrage: '…' };
+  function renderPilot(st) {
+    const box = $('#clipit');
+    if (!box) return;
+    const game = st.game || 'GTA VI';
+    if (!st.running) {
+      box.innerHTML = `<div class="clipit-row">
+          <button class="clipit-btn" id="clipitBtn">✂️ CLIP IT</button>
+          <div class="stack" style="gap:10px;flex:1 1 320px">
+            <div><b>Un seul bouton, plein de clips.</b><br><span class="muted small">Récupère les clips ${esc(game)} les plus vus du jour et clippe en direct les plus gros lives ${esc(game)} (+ tes streamers favoris). Aucun lien à donner.</span></div>
+            <div class="row" style="gap:14px">
+              <div class="seg" id="pLang">${[['en', 'Anglais'], ['fr', 'Français'], ['', 'Toutes langues']].map(([v, l]) => `<button data-v="${v}" class="${v === pilotOpts.lang ? 'on' : ''}">${l}</button>`).join('')}</div>
+              <div class="seg" id="pStreams">${[3, 5, 8].map((n) => `<button data-v="${n}" class="${n === +pilotOpts.streams ? 'on' : ''}">${n} lives</button>`).join('')}</div>
+            </div>
+            <label class="switch" style="min-height:0"><span class="small"><b>Monter et exporter chaque clip tout seul</b> (${esc(((SETTINGS && SETTINGS.default_formats) || []).join(', '))})</span><input type="checkbox" id="pAuto" ${pilotOpts.auto ? 'checked' : ''}><span class="knob"></span></label>
+          </div></div>`;
+      const seg = (id, key, num) => $(id).addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; pilotOpts[key] = num ? +b.dataset.v : b.dataset.v; store.set('pilotOpts', pilotOpts); renderPilot(st); });
+      seg('#pLang', 'lang'); seg('#pStreams', 'streams', true);
+      $('#pAuto').addEventListener('change', (e) => { pilotOpts.auto = e.target.checked; store.set('pilotOpts', pilotOpts); });
+      $('#clipitBtn').addEventListener('click', async () => {
+        $('#clipitBtn').disabled = true;
+        try { renderPilot(await api('/api/autopilot/start', { method: 'POST', json: { ...pilotOpts, quality: '720' } })); toast('C\'est parti : l\'appli clippe toute seule ✓', 'ok'); setTimeout(loadProjects, 4000); }
+        catch (err) { toast(err.message, 'err'); $('#clipitBtn').disabled = false; }
+      });
+    } else {
+      const mins = Math.max(1, Math.round((Date.now() / 1000 - st.started) / 60));
+      box.innerHTML = `<div class="clipit-row">
+          <button class="clipit-btn on" id="clipitStop">⏹ ARRÊTER</button>
+          <div class="stack" style="gap:10px;flex:1 1 320px">
+            <div><b>🔴 L'appli clippe toute seule</b> <span class="muted small">depuis ${fmtDur(mins * 60)}</span><br>
+              <span class="muted small">${st.imported} clip(s) du jour récupéré(s) · ${st.live_clips} clip(s) créé(s) en direct · ${st.watchers.length} live(s) surveillé(s)</span></div>
+            <div class="tags">${st.watchers.map((w) => `<span class="badge ${w.state === 'direct' ? 'ok' : ''}">${stateIcon[w.state] || ''} ${esc(w.display)}${w.clips ? ` · ${w.clips} clip(s)` : ''}</span>`).join('') || '<span class="muted small">Recherche des lives…</span>'}</div>
+            <div class="row"><a class="btn btn-sm" href="#/live">Voir le détail des lives →</a>
+              ${st.events[0] ? `<span class="muted small">${esc(st.events[0].text)}</span>` : ''}</div>
+          </div></div>`;
+      $('#clipitStop').addEventListener('click', async () => {
+        if (!confirm('Arrêter le pilote automatique ? (les clips déjà créés restent)')) return;
+        try { renderPilot(await api('/api/autopilot/stop', { method: 'POST' })); } catch (err) { toast(err.message, 'err'); }
+      });
+    }
+  }
+  async function pollPilot() {
+    try { renderPilot(await api('/api/autopilot')); } catch { /* ignore */ }
+    clearTimeout(pilotTimer);
+    if (!destroyed) pilotTimer = setTimeout(pollPilot, 4000);
+  }
+
   renderFormats();
   renderTab();
   loadProjects();
-  return { destroy() { destroyed = true; clearTimeout(timer); } };
+  pollPilot();
+  return { destroy() { destroyed = true; clearTimeout(timer); clearTimeout(pilotTimer); } };
 }
 
 // ---------------------------------------------------------------------------

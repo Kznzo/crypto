@@ -9,7 +9,15 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 
 ## Ce que fait l'appli
 
-### 🔴 Clips automatiques en direct (nouveau)
+### ✂️ Le bouton CLIP IT (le plus simple)
+Sur l'accueil, appuie sur **CLIP IT** : c'est tout, aucun lien à donner.
+- l'appli récupère tout de suite les **clips GTA 6 les plus vus du jour** (toutes chaînes, jamais deux fois le même) ;
+- elle surveille en direct les **plus gros lives GTA 6** du moment (3, 5 ou 8, en anglais ou en français) + tes favoris (OhnePixel) et clippe leurs moments forts ;
+- toutes les 10 minutes, elle ajoute les nouveaux lives et lâche ceux qui s'arrêtent ou changent de jeu ;
+- option « Monter et exporter chaque clip tout seul » : les vidéos TikTok / Reels / Shorts sortent prêtes à poster ;
+- le même bouton (**ARRÊTER**) coupe tout ; le pilote reprend tout seul si tu relances l'appli.
+
+### 🔴 Clips automatiques en direct
 Les VOD sont souvent réservées aux abonnés, mais **le live est ouvert à tous**. Donne le nom d'une chaîne :
 - ClipForge regarde le live en continu (il garde en mémoire les 4 dernières minutes, sans les pubs Twitch) ;
 - il lit le **chat** (pics de messages, « clip it », KEKW, LUL, Pog…) et écoute le **son** (cris, rires) ;
@@ -187,6 +195,7 @@ clipforge/
   promo.py        intro YouTube / fin TikTok-Reels-Shorts animées (Pillow) avec bruitages
   compilations.py compilations YouTube : liste de clips, rendu par morceaux, assemblage, chapitres
   live.py         clippeur en direct : enregistrement HLS (TS / fMP4, sans pubs), chat, détection, découpe
+  autopilot.py    bouton CLIP IT : top clips du jour + surveillance automatique des plus gros lives du jeu
   static/         interface (HTML/CSS/JS sans dépendance, tactile)
   assets/         polices (licence OFL) et modèle de détection de visage (licence MIT)
 ```

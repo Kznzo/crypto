@@ -281,6 +281,15 @@ main { max-width: 1440px; margin: 0 auto; padding: 22px 20px 80px; }
 .stat-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .stat-num { font-size: 1.6rem; font-weight: 800; line-height: 1; }
 
+/* ---------- Bouton CLIP IT ---------- */
+.clipit { background: radial-gradient(800px 300px at 0% 0%, rgba(244, 63, 94, 0.18), transparent 60%), var(--card); }
+.clipit-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.clipit-btn { min-height: 92px; padding: 0 44px; font-size: 1.9rem; font-weight: 800; letter-spacing: 0.02em; border-radius: 26px;
+  border: 0; color: #fff; background: linear-gradient(135deg, #f43f5e, #9b5cff); box-shadow: 0 12px 30px rgba(244, 63, 94, 0.35); }
+.clipit-btn:hover { background: linear-gradient(135deg, #fb5874, #a873ff); }
+.clipit-btn.on { background: #2a2a38; box-shadow: none; font-size: 1.4rem; min-height: 72px; }
+@media (max-width: 600px) { .clipit-btn { width: 100%; } }
+
 /* ---------- Live ---------- */
 .hype { position: relative; height: 14px; border-radius: 7px; background: #2a2a38; margin-top: 6px; overflow: hidden; }
 .hype i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 7px; background: linear-gradient(90deg, #6d28d9, #f43f5e); transition: width 0.6s; }

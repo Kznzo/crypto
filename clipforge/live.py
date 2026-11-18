@@ -444,6 +444,14 @@ class LiveWatcher:
             buf_end = self.segments[-1]["pdt"] + self.segments[-1]["dur"]
         # On n'évalue que les moments dont la réaction du chat est déjà arrivée.
         horizon = min(buf_end, _now() - self.latency - REACTION_DELAY - 2.5)
+        # Échauffement : il faut ~1 min d'historique pour savoir ce qui est « normal » sur cette chaîne.
+        with self.lock:
+            first_audio = self.audio[0][0] if self.audio else None
+            first_chat = self.chat[0][0] if self.chat else None
+        if first_audio is None or horizon - first_audio < 60:
+            return
+        if first_chat is not None and _now() - first_chat < 60:
+            return
         t_from = max(buf_start, horizon - 180)
         if horizon - t_from < 20:
             return

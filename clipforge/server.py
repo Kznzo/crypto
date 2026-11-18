@@ -17,7 +17,9 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, analysis, captions, compilations, live, pipeline, projects, promo, render, social, sources
+from . import (
+    __version__, analysis, autopilot, captions, compilations, live, pipeline, projects, promo, render, social, sources,
+)
 from .analysis import clamp_rect
 from .config import (
     CAPTION_STYLES, CLIP_LENGTHS, DATA_DIR, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, clip_seconds,
@@ -28,8 +30,12 @@ from .jobs import manager
 
 @contextlib.asynccontextmanager
 async def lifespan(_app):
-    # Au lancement : reprend la surveillance des lives (et de tes streamers favoris).
-    threading.Thread(target=live.manager.restore, daemon=True).start()
+    # Au lancement : reprend la surveillance des lives (et de tes streamers favoris) et le pilote auto.
+    def _restore() -> None:
+        live.manager.restore()
+        autopilot.pilot.restore()
+
+    threading.Thread(target=_restore, daemon=True).start()
     yield
     for w in list(live.manager.watchers.values()):
         w.stop()
@@ -771,6 +777,24 @@ def open_compilation_folder(cid: str, request: Request):
 # ---------------------------------------------------------------------------
 # Clippeur automatique en direct + découverte GTA 6
 # ---------------------------------------------------------------------------
+
+@app.get("/api/autopilot")
+def autopilot_status():
+    return autopilot.pilot.status()
+
+
+@app.post("/api/autopilot/start")
+async def autopilot_start(request: Request):
+    data = await request.json() if (await request.body()) else {}
+    autopilot.pilot.start(data or {})
+    return autopilot.pilot.status()
+
+
+@app.post("/api/autopilot/stop")
+def autopilot_stop():
+    autopilot.pilot.stop()
+    return autopilot.pilot.status()
+
 
 @app.get("/api/live")
 def live_list():
