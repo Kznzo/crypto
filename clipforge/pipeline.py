@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import analysis, captions, projects, render, social, sources
 from .config import PLATFORMS, load_settings
+from .ffmpeg_utils import probe
 from .jobs import Job, manager
 
 
@@ -183,9 +184,14 @@ def _start_one_render(pid: str, platform: str) -> Job:
             on_progress=prog, cancel_check=lambda: job.cancel_requested,
         )
         start, end = render.clip_bounds(project["edit"], project["source"], platform)
+        try:
+            real_duration = probe(out)["duration"]  # inclut l'intro / la fin éventuelle
+        except Exception:
+            real_duration = end - start
         # Textes de publication (et sous-titres .srt pour YouTube) rangés à côté de la vidéo.
         try:
-            texts = social.publish_texts(project, project["edit"].get("publish_lang", "auto"))
+            texts = social.publish_texts(project, project["edit"].get("publish_lang", "auto"),
+                                         email=settings.get("promo_email", ""))
             (out.parent / f"{platform}.txt").write_text(social.publish_txt(texts, platform), "utf-8")
             if platform in ("youtube", "shorts") and project.get("transcript"):
                 srt = captions.build_srt(project["transcript"], start, end)
@@ -193,7 +199,7 @@ def _start_one_render(pid: str, platform: str) -> Job:
         except OSError:
             pass
         mark("fini", file=out.name, size=out.stat().st_size, finished=time.time(),
-             duration=round(end - start, 2), seconds=round(time.time() - t0, 1), job_id=job.id)
+             duration=round(real_duration, 2), seconds=round(time.time() - t0, 1), job_id=job.id)
         job.set(1.0, "Vidéo prête")
 
     def on_error(job: Job, message: str) -> None:

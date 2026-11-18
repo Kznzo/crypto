@@ -14,9 +14,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, captions, pipeline, projects, render, social, sources
+from . import __version__, captions, pipeline, projects, promo, render, social, sources
 from .analysis import clamp_rect
-from .config import CAPTION_STYLES, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, load_settings, save_settings
+from .config import (
+    CAPTION_STYLES, DATA_DIR, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, load_settings, save_settings,
+)
 from .ffmpeg_utils import available_hw_encoder
 from .jobs import manager
 
@@ -195,6 +197,17 @@ async def put_settings(request: Request):
     if data.get("publish_lang") not in (None, "auto", "fr", "en"):
         raise HTTPException(400, "Langue inconnue")
     data.pop("profile", None)  # modifié via /api/bios
+    if "promo_email" in data:
+        email = str(data["promo_email"] or "").strip()
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise HTTPException(400, "Adresse email invalide.")
+        data["promo_email"] = email[:80]
+    for key in ("promo_intro_text", "promo_outro_text"):
+        if key in data:
+            data[key] = str(data[key] or "").strip()[:60]
+    for key in ("promo_intro", "promo_outro"):
+        if key in data:
+            data[key] = bool(data[key])
     s = save_settings(data)
     s.pop("access_key", None)
     return s
@@ -283,7 +296,34 @@ def publish_texts(pid: str, lang: str = "auto", variant: int = 0):
     p = _load_or_404(pid)
     if lang == "auto":
         lang = p["edit"].get("publish_lang", "auto")
-    return social.publish_texts(p, lang, max(0, variant), load_settings().get("profile"))
+    settings = load_settings()
+    return social.publish_texts(p, lang, max(0, variant), settings.get("profile"),
+                                email=settings.get("promo_email", ""))
+
+
+@app.get("/api/promo-preview")
+def promo_preview(kind: str = "intro", platform: str = "youtube", project: str | None = None):
+    """Aperçu de l'intro YouTube ou de la fin TikTok / Reels / Shorts, avec les réglages actuels."""
+    if kind not in promo.DURATION or platform not in PLATFORMS:
+        raise HTTPException(400, "Paramètres invalides")
+    if (kind == "intro") == PLATFORMS[platform]["vertical"]:
+        raise HTTPException(400, "L'intro est pour YouTube 16:9, la fin pour TikTok, Reels et Shorts.")
+    settings = load_settings()
+    frame, frame_key = None, ""
+    if project:
+        p = _load_or_404(project)
+        if p.get("source"):
+            src = projects.project_dir(project) / p["source"]["file"]
+            e = p["edit"]
+            t = float(e.get("start", 0)) + 0.3 if kind == "intro" else float(e.get("end") or p["source"]["duration"]) - 0.3
+            frame = promo.frame_from_video(src, t)
+            frame_key = f"{project}:{round(t, 1)}"
+    try:
+        path = promo.preview(DATA_DIR / "cache", kind, platform, settings.get("promo_email", ""),
+                             settings.get(f"promo_{kind}_text") or None, frame, frame_key)
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc)) from None
+    return FileResponse(path, media_type="video/mp4")
 
 
 @app.get("/api/projects/{pid}/subtitles.srt")
@@ -349,6 +389,7 @@ async def post_bios(request: Request):
 EDIT_KEYS = {
     "start", "end", "layout", "split_ratio", "cam", "game", "crop", "main", "blur_zoom", "blur_offset",
     "title", "captions", "watermark", "progress_bar", "normalize_audio", "fade", "publish_lang",
+    "promo_intro", "promo_outro",
 }
 
 

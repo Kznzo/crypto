@@ -237,7 +237,14 @@ def youtube_tags(project: dict, lang: str) -> list[str]:
     return out
 
 
-def publish_texts(project: dict, lang: str | None = None, variant: int = 0, profile: dict | None = None) -> dict:
+SEND_CLIPS = {
+    "en": "📩 Send your clips to {e} to be featured in our next videos!",
+    "fr": "📩 Envoie tes clips à {e} pour passer dans nos prochaines vidéos !",
+}
+
+
+def publish_texts(project: dict, lang: str | None = None, variant: int = 0, profile: dict | None = None,
+                  email: str = "") -> dict:
     """Titre, description et hashtags prêts à coller, pour chaque plateforme."""
     lang = content_language(project, lang)
     origin = project.get("origin") or {}
@@ -246,6 +253,9 @@ def publish_texts(project: dict, lang: str | None = None, variant: int = 0, prof
     emoji = EMOJIS[variant % len(EMOJIS)]
     credit = CREDIT[lang].format(s=channel, l=_login(origin)) if channel else CREDIT_NO_CHANNEL[lang]
     cta = CTA[lang][variant % len(CTA[lang])].format(s=channel or "Twitch", p="Twitch")
+    email = (email or "").strip()
+    if email:
+        cta = f"{cta}\n{SEND_CLIPS[lang].format(e=email)}"
     out: dict = {"lang": lang, "variant": variant, "platforms": {}}
     for platform in ("tiktok", "reels", "shorts", "youtube"):
         tags = pick_hashtags(project, platform, lang, variant)

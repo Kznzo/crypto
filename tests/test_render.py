@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from clipforge import captions, projects, render, social
+from clipforge import captions, projects, promo, render, social
 from clipforge.config import load_settings
 from clipforge.ffmpeg_utils import ffmpeg_path, probe, run
 
@@ -33,7 +33,8 @@ def sample_project():
 def test_render_vertical_layouts(sample_project, layout):
     p = projects.load(sample_project["id"])
     p["edit"]["layout"] = layout
-    out = render.render_export(projects.project_dir(p["id"]), p, "tiktok", {**load_settings(), "quality": "rapide", "gpu": "off"})
+    settings = {**load_settings(), "quality": "rapide", "gpu": "off", "promo_outro": False}
+    out = render.render_export(projects.project_dir(p["id"]), p, "tiktok", settings)
     info = probe(out)
     assert (info["width"], info["height"]) == (1080, 1920)
     assert info["has_audio"]
@@ -42,17 +43,44 @@ def test_render_vertical_layouts(sample_project, layout):
 
 def test_render_youtube(sample_project):
     p = projects.load(sample_project["id"])
-    out = render.render_export(projects.project_dir(p["id"]), p, "youtube", {**load_settings(), "quality": "rapide", "gpu": "off"})
+    settings = {**load_settings(), "quality": "rapide", "gpu": "off", "promo_intro": True, "promo_email": "clips@exemple.com"}
+    out = render.render_export(projects.project_dir(p["id"]), p, "youtube", settings)
     info = probe(out)
     assert (info["width"], info["height"]) == (1920, 1080)
     assert Path(out).name == "youtube.mp4"
+    # 4 s de clip + 4 s d'intro
+    assert info["duration"] == pytest.approx(8, abs=0.25)
+
+
+def test_render_outro_and_project_override(sample_project):
+    p = projects.load(sample_project["id"])
+    settings = {**load_settings(), "quality": "rapide", "gpu": "off", "promo_outro": True, "promo_email": ""}
+    out = render.render_export(projects.project_dir(p["id"]), p, "shorts", settings)
+    assert probe(out)["duration"] == pytest.approx(7.6, abs=0.25)  # 4 s + 3,6 s de fin
+    p["edit"]["promo_outro"] = False  # désactivé pour ce projet seulement
+    out = render.render_export(projects.project_dir(p["id"]), p, "shorts", settings)
+    assert probe(out)["duration"] == pytest.approx(4, abs=0.2)
+
+
+def test_promo_card(tmp_path):
+    video, audio, dur = promo.build_card(tmp_path, "intro", "youtube", "clips@exemple.com", None, None)
+    info = probe(video)
+    assert (info["width"], info["height"]) == (1920, 1080)
+    assert info["duration"] == pytest.approx(dur, abs=0.1)
+    import wave
+    with wave.open(str(audio)) as wf:
+        assert wf.getnframes() / wf.getframerate() == pytest.approx(dur, abs=0.05)
+    v2, _, d2 = promo.build_card(tmp_path / "o", "outro", "reels", "", "GO FOLLOW", None)
+    assert probe(v2)["height"] == 1920 and d2 == promo.DURATION["outro"]
 
 
 def test_description_has_hashtags(sample_project):
     p = projects.load(sample_project["id"])
-    texts = social.publish_texts(p, "en")
+    texts = social.publish_texts(p, "en", email="clips@exemple.com")
     tiktok = texts["platforms"]["tiktok"]["text"]
     assert "#testchaine" in tiktok and "#twitchclips" in tiktok
+    assert "Send your clips to clips@exemple.com" in tiktok
+    assert "clips@" not in social.publish_texts(p, "en")["platforms"]["tiktok"]["text"]
     assert texts["platforms"]["shorts"]["hashtags"][0]["tag"] == "#shorts"
 
 

@@ -50,6 +50,11 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 
 > Les statistiques internes de TikTok, Instagram et YouTube ne sont pas publiques : les propositions s'appuient sur les règles connues des plateformes (nombre de hashtags utiles, limites de caractères) et sur ta niche, pas sur des chiffres de tendances en direct.
 
+**Intro et fin d'appel à l'action (en anglais)**, animées avec un clic sur le bouton et une cloche qui sonne :
+- **YouTube (16:9)** : intro de 4 s au début — « Want to be in our next video? Send your clips to *ton email* » + **Subscribe** + 🔔
+- **TikTok, Reels, Shorts** : fin de 3,6 s — « Send us your clips! *ton email* and get featured in our next videos » + **Follow** (TikTok, Reels) ou **Subscribe** (Shorts) + 🔔
+- L'email se règle dans **Réglages → Intro & fin de vidéo** (avec un aperçu) ; on peut couper l'intro ou la fin pour un clip précis dans l'onglet **Options**. L'email est aussi ajouté aux descriptions proposées.
+
 **Mode 100 % automatique** : coche-le sur l'accueil, colle un lien… et récupère directement les vidéos dans tous les formats choisis.
 
 ---
@@ -148,6 +153,7 @@ clipforge/
   social.py       descriptions, hashtags, tags YouTube, bios de profil, stats de la bibliothèque
   overlays.py     rendu des textes (titre, sous-titres, pseudo) en images transparentes
   render.py       graphe de filtres FFmpeg et encodage par plateforme
+  promo.py        intro YouTube / fin TikTok-Reels-Shorts animées (Pillow) avec bruitages
   static/         interface (HTML/CSS/JS sans dépendance, tactile)
   assets/         polices (licence OFL) et modèle de détection de visage (licence MIT)
 ```

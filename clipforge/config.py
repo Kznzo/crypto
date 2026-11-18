@@ -149,6 +149,12 @@ DEFAULT_SETTINGS = {
     "subtitles_english": False,  # traduire automatiquement les sous-titres en anglais
     "publish_lang": "auto",  # langue des descriptions : auto (celle du clip), fr ou en
     "profile": {},  # infos du compte pour les bios (nom, streamers clippés, jeux…)
+    # Intro YouTube / fin TikTok-Reels-Shorts (en anglais) : « envoie tes clips » + abonne-toi + cloche.
+    "promo_email": "",
+    "promo_intro": True,
+    "promo_outro": True,
+    "promo_intro_text": "",
+    "promo_outro_text": "",
     "access_key": "",
 }
 

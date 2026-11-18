@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Callable
 
+from . import promo
 from .analysis import split_heights
 from .captions import build_caption_groups
 from .config import CAPTION_STYLES, PLATFORMS
@@ -115,6 +116,18 @@ def encoder_args(settings: dict, fps: float) -> list[str]:
             "-maxrate", "20M", "-bufsize", "40M", *common]
 
 
+def promo_kind(edit: dict, settings: dict, platform: str) -> str | None:
+    """« intro » pour YouTube 16:9, « outro » pour TikTok / Reels / Shorts, ou None si désactivé.
+
+    Le réglage du projet (edit.promo_intro / promo_outro) l'emporte sur le réglage général.
+    """
+    kind = "outro" if PLATFORMS[platform]["vertical"] else "intro"
+    value = edit.get(f"promo_{kind}")
+    if value is None:
+        value = settings.get(f"promo_{kind}", True)
+    return kind if value else None
+
+
 def software_encoder_args(settings: dict, fps: float) -> list[str]:
     return encoder_args({**settings, "gpu": "off"}, fps)
 
@@ -131,10 +144,17 @@ def render_export(
     edit = project["edit"]
     src_path = project_dir / source["file"]
     start, end = clip_bounds(edit, source, platform)
-    duration = end - start
     p = PLATFORMS[platform]
     W, H = p["width"], p["height"]
     fps = min(60.0, source.get("fps") or 30.0)
+
+    # Intro (YouTube 16:9) ou fin (TikTok, Reels, Shorts) : « envoie tes clips » + abonne-toi.
+    kind = promo_kind(edit, settings, platform)
+    card_dur = promo.DURATION[kind] if kind else 0.0
+    if kind and p["max_duration"] and (end - start) + card_dur > p["max_duration"]:
+        end = start + p["max_duration"] - card_dur  # la séquence compte dans la durée maximale
+    duration = end - start
+    total = duration + card_dur
 
     caps = edit.get("captions", {})
     style = CAPTION_STYLES.get(caps.get("style", "tiktok"), CAPTION_STYLES["tiktok"])
@@ -171,21 +191,38 @@ def render_export(
             f"[{label}][bar]overlay=x='-W+W*t/{duration:.3f}':y={bar_y}:eof_action=pass[pb]"
         )
         label = "pb"
-    if edit.get("fade", True):
+    if edit.get("fade", True) or kind:
         fade_out = max(0.0, duration - 0.35)
         filters.append(f"[{label}]fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out:.3f}:d=0.35[fd]")
         label = "fd"
-    filters.append(f"[{label}]format=yuv420p[vout]")
+    main_v, main_a = ("vmain", "amain") if kind else ("vout", "aout")
+    filters.append(f"[{label}]fps={fps:g},setsar=1,format=yuv420p[{main_v}]")
 
     if source.get("has_audio", True):
         audio_chain = "[0:a]aresample=48000"
         if edit.get("normalize_audio", True):
             audio_chain += ",loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000"
-        if edit.get("fade", True):
+        if edit.get("fade", True) or kind:
             audio_chain += f",afade=t=in:st=0:d=0.2,afade=t=out:st={max(0.0, duration - 0.4):.3f}:d=0.4"
-        filters.append(audio_chain + "[aout]")
+        filters.append(audio_chain + f",aformat=sample_rates=48000:channel_layouts=stereo[{main_a}]")
     else:
-        filters.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{duration:.3f}[aout]")
+        filters.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{duration:.3f}[{main_a}]")
+
+    if kind:
+        if on_progress:
+            on_progress(0.02)
+        frame_t = start + 0.3 if kind == "intro" else max(start, end - 0.3)
+        card_v, card_a, _ = promo.build_card(
+            work / "promo", kind, platform, settings.get("promo_email", ""),
+            settings.get(f"promo_{kind}_text") or None, promo.frame_from_video(src_path, frame_t),
+        )
+        inputs += ["-i", str(card_v), "-i", str(card_a)]
+        iv, ia = next_input, next_input + 1
+        next_input += 2
+        filters.append(f"[{iv}:v]fps={fps:g},scale={W}:{H},setsar=1,format=yuv420p[vcard]")
+        filters.append(f"[{ia}:a]aformat=sample_rates=48000:channel_layouts=stereo[acard]")
+        order = "[vcard][acard][vmain][amain]" if kind == "intro" else "[vmain][amain][vcard][acard]"
+        filters.append(f"{order}concat=n=2:v=1:a=1[vout][aout]")
 
     out_dir = project_dir / "exports"
     out_dir.mkdir(exist_ok=True)
@@ -199,17 +236,17 @@ def render_export(
             "-map", "[vout]", "-map", "[aout]",
             *enc,
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-            "-t", f"{duration:.3f}",
+            "-t", f"{total:.3f}",
             str(tmp_out),
         ]
 
     try:
-        run_with_progress(build_args(encoder_args(settings, fps)), duration, on_progress, cancel_check)
+        run_with_progress(build_args(encoder_args(settings, fps)), total, on_progress, cancel_check)
     except FFmpegError as exc:
         if str(exc) == "Annulé" or settings.get("gpu") == "off" or not available_hw_encoder():
             raise
         # L'encodeur de la carte graphique a échoué : on retente avec le processeur.
-        run_with_progress(build_args(software_encoder_args(settings, fps)), duration, on_progress, cancel_check)
+        run_with_progress(build_args(software_encoder_args(settings, fps)), total, on_progress, cancel_check)
     tmp_out.replace(out_path)
     shutil.rmtree(work, ignore_errors=True)
     return out_path

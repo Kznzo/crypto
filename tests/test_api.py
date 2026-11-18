@@ -19,6 +19,12 @@ def test_info_and_settings():
     assert r.status_code == 200 and r.json()["quality"] == "rapide"
     assert load_settings()["access_key"] != "pirate"
     assert local.put("/api/settings", json={"whisper_model": "inconnu"}).status_code == 400
+    assert local.put("/api/settings", json={"promo_email": "pas-un-email"}).status_code == 400
+    r = local.put("/api/settings", json={"promo_email": " clips@exemple.com ", "promo_outro": False})
+    assert r.json()["promo_email"] == "clips@exemple.com" and r.json()["promo_outro"] is False
+    assert local.get("/api/promo-preview?kind=intro&platform=tiktok").status_code == 400
+    r = local.get("/api/promo-preview?kind=outro&platform=reels")
+    assert r.status_code == 200 and r.headers["content-type"] == "video/mp4"
 
 
 def test_tablet_needs_key():

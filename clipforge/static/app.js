@@ -110,6 +110,8 @@ let view = null;
 function route() {
   if (view && view.destroy) view.destroy();
   view = null;
+  // Les fenêtres (aperçu, QR code) se ferment quand on change d'écran.
+  $$('.modal-bg').forEach((m) => { $$('video', m).forEach((v) => v.pause()); m.remove(); });
   window.scrollTo(0, 0);
   const hash = location.hash || '#/';
   const m = hash.match(/^#\/p\/([a-z0-9]+)/);
@@ -152,6 +154,29 @@ function openTabletModal() {
   </div>`;
   bg.addEventListener('click', (e) => { if (e.target === bg || e.target.closest('[data-close]')) bg.remove(); });
   document.body.appendChild(bg);
+}
+
+// Fenêtre d'aperçu vidéo (intro / fin)
+function openVideoModal(url, title) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal" style="max-width:760px">
+    <div class="row" style="justify-content:space-between"><h2>${esc(title)}</h2>
+    <button class="btn-ghost icon-btn" data-close aria-label="Fermer">${ICON.x}</button></div>
+    <div class="row" id="vmWait" style="justify-content:center;padding:30px"><span class="spinner"></span> Préparation de l'aperçu…</div>
+    <video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;display:none"></video>
+  </div>`;
+  const v = bg.querySelector('video');
+  v.addEventListener('loadeddata', () => { v.style.display = 'block'; bg.querySelector('#vmWait').remove(); });
+  v.addEventListener('error', () => { bg.querySelector('#vmWait').textContent = "Impossible de créer l'aperçu."; });
+  v.src = url;
+  bg.addEventListener('click', (e) => { if (e.target === bg || e.target.closest('[data-close]')) { v.pause(); bg.remove(); } });
+  document.body.appendChild(bg);
+}
+
+function promoOn(edit, kind) {
+  const v = edit[`promo_${kind}`];
+  return v === undefined || v === null ? (SETTINGS ? SETTINGS[`promo_${kind}`] !== false : true) : !!v;
 }
 
 // ---------------------------------------------------------------------------
@@ -1293,7 +1318,20 @@ function EditorView(id) {
         ${sw('pbOn', '<b>Barre de progression</b>', edit.progress_bar, 'Une barre violette qui avance en haut de la vidéo : ça pousse à regarder jusqu\'au bout.')}
         ${sw('normOn', '<b>Son optimisé</b>', edit.normalize_audio, 'Volume égalisé au niveau conseillé pour TikTok, Instagram et YouTube.')}
         ${sw('fadeOn', '<b>Fondu au début et à la fin</b>', edit.fade)}
+        <hr style="border:0;border-top:1px solid var(--line);width:100%">
+        ${sw('introOn', '<b>Intro YouTube (16:9)</b>', promoOn(edit, 'intro'), '4 s en anglais au début : « envoie tes clips à ton email », abonne-toi + la cloche.')}
+        ${sw('outroOn', '<b>Fin TikTok, Reels et Shorts</b>', promoOn(edit, 'outro'), '3,6 s en anglais à la fin : même message, avec « Follow » (TikTok, Reels) ou « Subscribe » (Shorts).')}
+        ${SETTINGS && SETTINGS.promo_email ? `<p class="muted small" style="margin:0">Email affiché : <b>${esc(SETTINGS.promo_email)}</b> (modifiable dans les Réglages).</p>`
+          : '<div class="err-box">Ajoute ton email dans <a href="#/reglages">Réglages</a> pour que l\'intro et la fin disent où envoyer les clips (sinon seul « abonne-toi + la cloche » s\'affiche).</div>'}
+        <div class="row">
+          <button class="btn-sm" id="pvIntro">▶ Voir l'intro YouTube</button>
+          <button class="btn-sm" id="pvOutro">▶ Voir la fin TikTok</button>
+        </div>
       </div>`;
+      $('#introOn').addEventListener('change', (e) => { edit.promo_intro = e.target.checked; scheduleSave(); });
+      $('#outroOn').addEventListener('change', (e) => { edit.promo_outro = e.target.checked; scheduleSave(); });
+      $('#pvIntro').addEventListener('click', () => openVideoModal(`/api/promo-preview?kind=intro&platform=youtube&project=${id}&t=${Date.now()}`, 'Intro YouTube'));
+      $('#pvOutro').addEventListener('click', () => openVideoModal(`/api/promo-preview?kind=outro&platform=tiktok&project=${id}&t=${Date.now()}`, 'Fin TikTok'));
       $('#pbOn').addEventListener('change', (e) => { edit.progress_bar = e.target.checked; draw(); scheduleSave(); });
       $('#normOn').addEventListener('change', (e) => { edit.normalize_audio = e.target.checked; scheduleSave(); });
       $('#fadeOn').addEventListener('change', (e) => { edit.fade = e.target.checked; scheduleSave(); });
@@ -1302,7 +1340,7 @@ function EditorView(id) {
       body.innerHTML = `<div class="stack">
         <div class="exp-grid" id="expGrid">${Object.entries(INFO.platforms).map(([k, p]) => `
           <label class="exp-option ${expFormats.includes(k) ? 'on' : ''}"><input type="checkbox" value="${k}" ${expFormats.includes(k) ? 'checked' : ''}>
-            <span class="dot ${k}"></span><span class="info"><b>${esc(p.label)}</b><span>${p.width}×${p.height}${p.max_duration && len > p.max_duration ? ` · coupé à ${fmtDur(p.max_duration)}` : ''}</span></span></label>`).join('')}</div>
+            <span class="dot ${k}"></span><span class="info"><b>${esc(p.label)}</b><span>${p.width}×${p.height}${p.max_duration && len > p.max_duration ? ` · coupé à ${fmtDur(p.max_duration)}` : ''}${p.vertical ? (promoOn(edit, 'outro') ? ' · + fin 3,6 s' : '') : (promoOn(edit, 'intro') ? ' · + intro 4 s' : '')}</span></span></label>`).join('')}</div>
         <button class="btn-primary btn-big" id="renderBtn">${ICON.film} Créer les vidéos</button>
         <div class="row" style="justify-content:space-between">
           <p class="muted small" style="margin:0;flex:1 1 240px">${INFO.gpu_encoder ? `Accélération carte graphique active (${esc(INFO.gpu_encoder)}).` : 'Encodage par le processeur.'} Les vidéos sont aussi rangées dans le dossier du projet sur le PC.</p>
@@ -1623,17 +1661,30 @@ function SettingsView() {
           <label class="field">Style du titre<select id="sTitle">${opt(Object.entries(INFO.title_styles).map(([k, v]) => [k, v.label]), s.default_title_style)}</select></label>
         </div>
         <div class="card stack">
+          <h2>Intro & fin de vidéo (en anglais)</h2>
+          <label class="field">Email où recevoir les clips<input type="text" inputmode="email" id="sPromoEmail" value="${esc(s.promo_email || '')}" placeholder="clips@tondomaine.com"></label>
+          <label class="switch"><span><b>Intro sur les vidéos YouTube (16:9)</b><br><span class="muted small">« Want to be in our next video? Send your clips to… » + Subscribe + cloche</span></span><input type="checkbox" id="sPromoIntro" ${s.promo_intro !== false ? 'checked' : ''}><span class="knob"></span></label>
+          <label class="switch"><span><b>Fin sur TikTok, Reels et Shorts</b><br><span class="muted small">« Send us your clips! » + Follow / Subscribe + cloche</span></span><input type="checkbox" id="sPromoOutro" ${s.promo_outro !== false ? 'checked' : ''}><span class="knob"></span></label>
+          <label class="field">Phrase principale de l'intro (optionnel)<input type="text" id="sPromoIntroText" maxlength="60" value="${esc(s.promo_intro_text || '')}" placeholder="WANT TO BE IN OUR NEXT VIDEO?"></label>
+          <label class="field">Phrase principale de la fin (optionnel)<input type="text" id="sPromoOutroText" maxlength="60" value="${esc(s.promo_outro_text || '')}" placeholder="SEND US YOUR CLIPS!"></label>
+          <div class="row"><button class="btn-sm" id="sPvIntro">▶ Voir l'intro</button><button class="btn-sm" id="sPvOutro">▶ Voir la fin</button></div>
+          <p class="muted small" style="margin:0">L'email apparaît aussi dans les descriptions proposées. La fin compte dans la durée maximale (3 min pour Reels et Shorts).</p>
+        </div>
+        <div class="card stack">
           <h2>Compte Twitch</h2>
           <label class="field">Réutiliser ma connexion Twitch du navigateur<select id="sCookies">${opt([['', 'Non (vidéos publiques seulement)'], ['firefox', 'Firefox (conseillé)'], ['chrome', 'Chrome'], ['edge', 'Edge'], ['brave', 'Brave'], ['opera', 'Opera'], ['safari', 'Safari (Mac)']], s.twitch_cookies || '')}</select></label>
           <p class="muted small">Utile seulement pour les VOD réservées aux abonnés : sois connecté à Twitch dans ce navigateur sur le PC. Rien n'est envoyé ailleurs que vers Twitch.</p>
         </div>
       </div>
       <div class="row" style="margin-top:18px;justify-content:flex-end"><button class="btn-primary btn-big" id="sSave">Enregistrer</button></div>`;
-    $('#sSave').addEventListener('click', async () => {
+    const saveSettings = async (silent) => {
       try {
         SETTINGS = await api('/api/settings', {
           method: 'PUT',
           json: {
+            promo_email: $('#sPromoEmail').value.trim(), promo_intro: $('#sPromoIntro').checked,
+            promo_outro: $('#sPromoOutro').checked, promo_intro_text: $('#sPromoIntroText').value.trim(),
+            promo_outro_text: $('#sPromoOutroText').value.trim(),
             whisper_model: $('#sModel').value, language: $('#sLang').value, quality: $('#sQuality').value, gpu: $('#sGpu').value,
             default_watermark: $('#sWm').value.trim(), default_caption_style: $('#sCap').value, default_title_style: $('#sTitle').value,
             twitch_cookies: $('#sCookies').value,
@@ -1641,9 +1692,13 @@ function SettingsView() {
             publish_lang: $('#sPub').value,
           },
         });
-        toast('Réglages enregistrés ✓', 'ok');
-      } catch (err) { toast(err.message, 'err'); }
-    });
+        if (!silent) toast('Réglages enregistrés ✓', 'ok');
+        return true;
+      } catch (err) { toast(err.message, 'err'); return false; }
+    };
+    $('#sSave').addEventListener('click', () => saveSettings(false));
+    $('#sPvIntro').addEventListener('click', async () => { if (await saveSettings(true)) openVideoModal(`/api/promo-preview?kind=intro&platform=youtube&t=${Date.now()}`, 'Intro YouTube'); });
+    $('#sPvOutro').addEventListener('click', async () => { if (await saveSettings(true)) openVideoModal(`/api/promo-preview?kind=outro&platform=tiktok&t=${Date.now()}`, 'Fin TikTok'); });
   })().catch((err) => { app.innerHTML = `<div class="card empty">${esc(err.message)}</div>`; });
   return { destroy() { } };
 }
