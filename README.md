@@ -41,6 +41,11 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 
 Si un clip est plus long, l'export est coupé automatiquement ; l'éditeur prévient à l'avance.
 
+**Durée des vidéos verticales : 30 s, 45 s ou 1 min 01** (choix sur l'accueil, fin comprise) :
+- à l'import, l'appli **garde toute seule le meilleur passage** de cette durée (là où le son est le plus intense : cris, rires, hype), en coupant sur des moments calmes ;
+- dans l'éditeur, les boutons « ✨ Garder le meilleur passage : 30 s · 45 s · 1 min 01 » refont le choix en un clip ;
+- pour un **passage de VOD**, choisis « 3 clips », « 5 clips »… : l'appli crée **un clip séparé par moment fort**, chacun de la durée choisie (et les monte tout seul en mode 100 % automatique). Depuis un clip long, le bouton « ✂️ Créer un clip séparé pour chaque moment fort » fait la même chose.
+
 **Textes pour publier** (onglet Exporter), en anglais ou en français selon le clip :
 - **TikTok / Reels** : légende avec accroche, crédit du streamer (`twitch.tv/…`), appel à s'abonner et 5 hashtags
 - **Shorts** : titre + description, `#shorts` et 3 hashtags (ceux affichés au-dessus du titre)

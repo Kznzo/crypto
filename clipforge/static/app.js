@@ -179,6 +179,11 @@ function openVideoModal(url, title) {
   document.body.appendChild(bg);
 }
 
+// Choix 30 s / 45 s / 1 min 01
+function lengthSeg(id, current) {
+  return `<div class="seg" id="${id}">${[[30, '30 s'], [45, '45 s'], [61, '1 min 01']].map(([v, l]) => `<button data-v="${v}" class="${+current === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+}
+
 // Durée de clip possible pour un format (la fin de 3,6 s compte dans la limite des formats verticaux).
 function clipLimit(key, edit) {
   const p = INFO.platforms[key];
@@ -248,6 +253,12 @@ function HomeView() {
           <button data-tab="fichier">Fichier vidéo</button>
         </div>
         <div id="tabBody"></div>
+        <div class="auto-box" style="margin-bottom:12px">
+          <div class="row" style="justify-content:space-between">
+            <span><b>Durée des vidéos TikTok / Reels / Shorts</b><br><span class="muted small">L'appli garde tout seule le meilleur passage (fin comprise).</span></span>
+            ${lengthSeg('lenSeg', (SETTINGS && SETTINGS.clip_length) || 61)}
+          </div>
+        </div>
         <div class="auto-box">
           <label class="switch"><span><b>Montage 100 % automatique</b><br><span class="muted small">L'appli fait tout et exporte directement dans les formats choisis.</span></span>
             <input type="checkbox" id="autoChk" ${auto ? 'checked' : ''}><span class="knob"></span></label>
@@ -271,6 +282,11 @@ function HomeView() {
     renderFormats();
   });
   $('#autoChk').addEventListener('change', (e) => { auto = e.target.checked; store.set('auto', auto); });
+  $('#lenSeg').addEventListener('click', async (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#lenSeg button').forEach((x) => x.classList.toggle('on', x === b));
+    try { SETTINGS = await api('/api/settings', { method: 'PUT', json: { clip_length: +b.dataset.v } }); toast(`Vidéos de ${b.textContent} ✓`, 'ok'); } catch (err) { toast(err.message, 'err'); }
+  });
 
   function renderTab() {
     $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
@@ -319,13 +335,17 @@ function HomeView() {
             <label class="field grow">Fin du passage<input type="text" id="vodEnd" placeholder="1:33:00" required></label>
             <button class="btn-primary btn-big" type="submit" style="align-self:flex-end">Récupérer</button>
           </div>
-          <p class="muted small">ClipForge télécharge seulement ce passage puis repère tout seul les moments forts (cris, rires, hype).</p>
+          <label class="field">Clips à créer dans ce passage<select id="vodSplit">
+            <option value="1">Un seul (le meilleur moment)</option><option value="3" selected>3 clips (les 3 meilleurs moments)</option>
+            <option value="5">5 clips</option><option value="8">8 clips</option></select></label>
+          <p class="muted small">ClipForge télécharge seulement ce passage, repère les moments forts (cris, rires, hype) et crée un clip de la durée choisie pour chacun.</p>
         </form>`;
       $('#vodForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const s = parseTime($('#vodStart').value), en = parseTime($('#vodEnd').value);
         if (s == null || en == null || en <= s) { toast('Vérifie le début et la fin du passage.', 'err'); return; }
-        await importUrl($('#vodUrl').value.trim(), e.submitter, { vod_start: s, vod_end: en });
+        const split = +$('#vodSplit').value;
+        await importUrl($('#vodUrl').value.trim(), e.submitter, { vod_start: s, vod_end: en, split_count: split > 1 ? split : 0 });
       });
     } else {
       body.innerHTML = `<label class="dropzone" id="drop">
@@ -792,6 +812,8 @@ function EditorView(id) {
         ['layout', 'split_ratio', 'cam', 'game', 'crop', 'auto_reason'].forEach((k) => { edit[k] = fresh.edit[k]; });
         renderRects(); renderTab(); draw();
         toast(j.message || 'Cadrage mis à jour', 'ok');
+      } else if (j.kind === 'decoupe') {
+        toast(`${j.message} : retrouve-les dans « Mes projets » ✓`, 'ok');
       } else if (j.kind.startsWith('export:')) {
         toast(`${j.label} : vidéo prête ✓`, 'ok');
       }
@@ -849,10 +871,13 @@ function EditorView(id) {
               <div><div class="muted small">Durée du clip</div><div style="font-weight:800;font-size:1.3rem" id="durLbl"></div></div>
             </div>
             <div class="duration-info" id="durInfo"></div>
+            <div class="row" style="margin-top:12px"><span class="muted small">✨ Garder le meilleur passage :</span>
+              ${lengthSeg('trimSeg', null)}</div>
           </div>
           ${P.highlights && P.highlights.length ? `<div class="panel"><div class="panel-title"><h3>🔥 Moments forts détectés</h3></div>
             <p class="muted small" style="margin-top:-6px">Passages où ça crie, rit ou s'emballe le plus. Touche pour les sélectionner.</p>
-            <div class="highlights">${P.highlights.map((h, i) => `<button class="btn-sm" data-hl="${i}">#${i + 1} · ${fmtTime(h.start, false)} → ${fmtTime(h.end, false)}</button>`).join('')}</div></div>` : ''}
+            <div class="highlights">${P.highlights.map((h, i) => `<button class="btn-sm" data-hl="${i}">#${i + 1} · ${fmtTime(h.start, false)} → ${fmtTime(h.end, false)}</button>`).join('')}</div>
+            ${P.highlights.length > 1 ? `<button class="btn-primary" id="splitBtn" style="margin-top:12px">✂️ Créer un clip séparé pour chaque moment fort (${P.highlights.length})</button>` : ''}</div>` : ''}
         </div>
         <div class="ed-set">
           <div class="panel" id="settingsPanel">
@@ -898,6 +923,26 @@ function EditorView(id) {
     $('#pvSeg').addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
       previewKey = b.dataset.k; store.set('previewKey', previewKey); markPreviewSeg(); sizePreview(); draw();
+    });
+    $('#trimSeg').addEventListener('click', async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      try {
+        await flushSave();
+        const r = await api(`/api/projects/${id}/auto-trim`, { method: 'POST', json: { length: +b.dataset.v } });
+        edit.start = r.start; edit.end = r.end; groupsCache.key = '';
+        renderTrim(); video.currentTime = r.start; draw();
+        $$('#trimSeg button').forEach((x) => x.classList.toggle('on', x === b));
+        toast(`Meilleur passage de ${b.textContent} sélectionné ✓`, 'ok');
+      } catch (err) { toast(err.message, 'err'); }
+    });
+    const splitBtn = $('#splitBtn');
+    if (splitBtn) splitBtn.addEventListener('click', async () => {
+      try {
+        await flushSave();
+        await api(`/api/projects/${id}/split`, { method: 'POST', json: { count: P.highlights.length } });
+        toast(`Création de ${P.highlights.length} clips… ils apparaîtront dans « Mes projets ».`, 'ok');
+        poll();
+      } catch (err) { toast(err.message, 'err'); }
     });
     $$('[data-hl]').forEach((b) => b.addEventListener('click', () => {
       const h = P.highlights[+b.dataset.hl];

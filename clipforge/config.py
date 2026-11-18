@@ -146,6 +146,20 @@ def platform_limits(settings: dict | None = None) -> dict[str, float]:
     return {k: (vertical if p["vertical"] else YOUTUBE_MAX_SECONDS) for k, p in PLATFORMS.items()}
 
 
+CLIP_LENGTHS = (30, 45, 61)
+OUTRO_SECONDS = 3.6  # durée de la fin « Send us your clips » (voir promo.py)
+
+
+def clip_seconds(settings: dict | None = None, length: float | None = None, outro: bool | None = None) -> float:
+    """Durée de clip à garder pour obtenir une vidéo verticale de « length » secondes, fin comprise."""
+    settings = settings or {}
+    length = float(length or settings.get("clip_length") or DEFAULT_SETTINGS["clip_length"])
+    length = min(length, platform_limits(settings)["tiktok"])
+    if outro is None:
+        outro = settings.get("promo_outro", True)
+    return round(length - (OUTRO_SECONDS if outro else 0.0), 2)
+
+
 def platforms_for(settings: dict | None = None) -> dict:
     """Copie de PLATFORMS avec les durées maximales des réglages (pour l'interface)."""
     limits = platform_limits(settings)
@@ -173,6 +187,7 @@ DEFAULT_SETTINGS = {
     "profile": {},  # infos du compte pour les bios (nom, streamers clippés, jeux…)
     # Intro YouTube / fin TikTok-Reels-Shorts (en anglais) : « envoie tes clips » + abonne-toi + cloche.
     "vertical_max_seconds": 61,  # durée max TikTok / Reels / Shorts (fin comprise)
+    "clip_length": 61,  # durée visée des vidéos verticales générées : 30, 45 ou 61 s (fin comprise)
     "promo_email": "",
     "promo_intro": True,
     "promo_outro": True,

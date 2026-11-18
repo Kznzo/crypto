@@ -15,11 +15,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, captions, compilations, pipeline, projects, promo, render, social, sources
+from . import __version__, analysis, captions, compilations, pipeline, projects, promo, render, social, sources
 from .analysis import clamp_rect
 from .config import (
-    CAPTION_STYLES, DATA_DIR, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, load_settings, platforms_for,
-    save_settings,
+    CAPTION_STYLES, CLIP_LENGTHS, DATA_DIR, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, clip_seconds,
+    load_settings, platforms_for, save_settings,
 )
 from .ffmpeg_utils import available_hw_encoder
 from .jobs import manager
@@ -207,6 +207,8 @@ async def put_settings(request: Request):
     for key in ("promo_intro_text", "promo_outro_text"):
         if key in data:
             data[key] = str(data[key] or "").strip()[:60]
+    if "clip_length" in data and data["clip_length"] not in CLIP_LENGTHS:
+        raise HTTPException(400, "Durée invalide (30, 45 ou 61 s).")
     if "vertical_max_seconds" in data:
         try:
             data["vertical_max_seconds"] = int(min(180, max(15, float(data["vertical_max_seconds"]))))
@@ -265,9 +267,14 @@ async def create_from_url(request: Request):
         raise HTTPException(400, "La fin doit être après le début.")
     title = data.get("title") or "Clip Twitch"
     project = projects.new_project(title, {"url": url})
+    try:
+        split_count = max(0, min(10, int(data.get("split_count") or 0)))
+    except (TypeError, ValueError):
+        split_count = 0
     pipeline.start_import_url(
         project["id"], url, bool(data.get("auto")), _formats(data.get("formats")),
         vod_start if vod_end is not None else None, vod_end if vod_start is not None else None,
+        split_count=split_count,
     )
     return projects.load(project["id"])
 
@@ -479,6 +486,51 @@ def transcribe(pid: str):
             501, "Le module IA des sous-titres n'est pas installé (relance le lanceur ou « pip install faster-whisper »)."
         )
     return pipeline.start_transcribe(pid).to_dict()
+
+
+def _length(value) -> float | None:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if v in CLIP_LENGTHS else None
+
+
+@app.post("/api/projects/{pid}/auto-trim")
+async def auto_trim(pid: str, request: Request):
+    """Garde automatiquement le meilleur passage de 30 s, 45 s ou 1 min 01 (fin comprise)."""
+    data = await request.json()
+    p = _load_or_404(pid)
+    if not p.get("source"):
+        raise HTTPException(409, "La vidéo n'est pas encore prête.")
+    length = _length(data.get("length"))
+    if not length:
+        raise HTTPException(400, "Durée invalide (30, 45 ou 61 s).")
+    target = clip_seconds(load_settings(), length, p["edit"].get("promo_outro"))
+    src = projects.project_dir(pid) / p["source"]["file"]
+    start, end = analysis.best_window(src, p["source"]["duration"], target)
+
+    def apply(proj: dict) -> None:
+        proj["edit"]["start"], proj["edit"]["end"] = start, end
+
+    projects.mutate(pid, apply)
+    return {"start": start, "end": end, "target": target}
+
+
+@app.post("/api/projects/{pid}/split")
+async def split_project(pid: str, request: Request):
+    """Crée un clip séparé pour chaque moment fort d'une longue vidéo."""
+    data = await request.json()
+    p = _load_or_404(pid)
+    if not p.get("source"):
+        raise HTTPException(409, "La vidéo n'est pas encore prête.")
+    try:
+        count = max(1, min(10, int(data.get("count") or 3)))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Nombre invalide") from None
+    job = pipeline.start_split(pid, count, bool(data.get("auto")), _formats(data.get("formats")),
+                               _length(data.get("length")))
+    return job.to_dict()
 
 
 @app.post("/api/projects/{pid}/analyze")

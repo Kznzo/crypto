@@ -1,12 +1,13 @@
 """Enchaînement des étapes : import → analyse → sous-titres → exports (mode 100 % automatique)."""
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
 from . import analysis, captions, projects, render, social, sources
-from .config import PLATFORMS, load_settings
-from .ffmpeg_utils import probe
+from .config import PLATFORMS, clip_seconds, load_settings
+from .ffmpeg_utils import ffmpeg_path, probe, run
 from .jobs import Job, manager
 
 
@@ -22,7 +23,8 @@ def _fail_project(pid: str, message: str) -> None:
 # ---------------------------------------------------------------------------
 
 def start_import_url(
-    pid: str, url: str, auto: bool, formats: list[str], vod_start: float | None = None, vod_end: float | None = None
+    pid: str, url: str, auto: bool, formats: list[str], vod_start: float | None = None, vod_end: float | None = None,
+    split_count: int = 0,
 ) -> Job:
     def work(job: Job) -> None:
         d = projects.project_dir(pid)
@@ -53,7 +55,9 @@ def start_import_url(
         job.set(0.85, "Analyse de la vidéo…")
         projects.finalize_source(pid, file_name)
         job.set(1.0, "Clip importé")
-        if auto:
+        if split_count > 1:
+            start_split(pid, split_count, auto, formats)  # un clip par moment fort
+        elif auto:
             start_auto_chain(pid, formats)
 
     return manager.submit(pid, "import", "Import du clip", work, queue="reseau",
@@ -78,6 +82,70 @@ def start_auto_chain(pid: str, formats: list[str]) -> None:
     if project["edit"]["captions"].get("enabled") and captions.whisper_available():
         start_transcribe(pid)
     start_render(pid, formats)
+
+
+# ---------------------------------------------------------------------------
+# Découpage d'une longue vidéo en plusieurs clips (un par moment fort)
+# ---------------------------------------------------------------------------
+
+COPY_EDIT_KEYS = ("layout", "split_ratio", "cam", "game", "crop", "main", "blur_zoom", "blur_offset", "captions",
+                  "watermark", "progress_bar", "normalize_audio", "fade", "publish_lang", "promo_intro", "promo_outro")
+
+
+def start_split(pid: str, count: int, auto: bool = False, formats: list[str] | None = None,
+                length: float | None = None) -> Job:
+    """Crée « count » nouveaux clips à partir des moments forts d'une longue vidéo (VOD…)."""
+    def work(job: Job) -> None:
+        settings = load_settings()
+        parent = projects.load(pid)
+        d = projects.project_dir(pid)
+        src = d / parent["source"]["file"]
+        dur = parent["source"]["duration"]
+        target = clip_seconds(settings, length, parent["edit"].get("promo_outro"))
+        job.set(0.03, "Recherche des moments forts…")
+        profile = analysis.loudness_profile(src)
+        moments = analysis.find_highlights(src, dur, clip_len=target, count=count, profile=profile)
+        if not moments:
+            start, end = analysis.best_window(src, dur, target, profile)
+            moments = [{"start": start, "end": end, "peak": start}]
+        moments = moments[:count]
+        moments.sort(key=lambda m: m["start"])  # dans l'ordre du live
+        created = []
+        for i, m in enumerate(moments):
+            job.set(0.05 + 0.9 * i / len(moments), f"Création du clip {i + 1}/{len(moments)}…")
+            origin = {**(parent.get("origin") or {}), "parent": pid, "segment": [m["start"], m["end"]]}
+            title = f"Moment {i + 1} – {parent.get('title') or 'Clip'}"[:90]
+            child = projects.new_project(title, origin)
+            cd = projects.project_dir(child["id"])
+            pad = 2.0
+            cs = max(0.0, m["start"] - pad)
+            ce = min(dur, m["end"] + pad)
+            res = run([
+                ffmpeg_path(), "-hide_banner", "-v", "error", "-y", "-ss", f"{cs:.3f}", "-i", str(src),
+                "-t", f"{ce - cs:.3f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(cd / "source.mp4"),
+            ])
+            if res.returncode != 0:
+                projects.delete(child["id"])
+                raise RuntimeError("Impossible de découper la vidéo.")
+            projects.finalize_source(child["id"], "source.mp4", auto_layout=False)
+
+            def apply(p: dict, m=m, cs=cs) -> None:
+                for k in COPY_EDIT_KEYS:  # même mise en page et mêmes réglages que la vidéo d'origine
+                    if k in parent["edit"]:
+                        p["edit"][k] = json.loads(json.dumps(parent["edit"][k]))
+                p["edit"]["start"] = round(m["start"] - cs, 2)
+                p["edit"]["end"] = round(min(p["source"]["duration"], m["end"] - cs), 2)
+                p["edit"]["auto_reason"] = parent["edit"].get("auto_reason", "")
+                p["highlights"] = []
+
+            projects.mutate(child["id"], apply)
+            created.append(child["id"])
+            if auto:
+                start_auto_chain(child["id"], formats or settings.get("default_formats", ["tiktok", "reels", "shorts"]))
+        job.set(1.0, f"{len(created)} clips créés")
+
+    return manager.submit(pid, "decoupe", "Découpage en clips", work, queue="calcul")
 
 
 # ---------------------------------------------------------------------------

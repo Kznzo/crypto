@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 from . import analysis, social
-from .config import PROJECTS_DIR, ensure_dirs, load_settings
+from .config import PROJECTS_DIR, clip_seconds, ensure_dirs, load_settings
 from .ffmpeg_utils import BROWSER_CODECS, extract_frame, make_preview_proxy, probe
 
 _lock = threading.RLock()
@@ -199,12 +199,19 @@ def finalize_source(pid: str, file_name: str, auto_layout: bool = True) -> dict:
         and not social.is_junk_title(project.get("title"))
     ):
         edit["title"]["text"] = project.get("title") or ""
+    # Durée visée (30 s, 45 s ou 1 min 01, fin comprise) : on garde automatiquement le meilleur passage.
+    settings = load_settings()
+    target = clip_seconds(settings)
     highlights = []
-    if info["duration"] > 100:
-        highlights = analysis.find_highlights(src, info["duration"], clip_len=45)
+    if info["duration"] > target + 1:
+        update(pid, status="analyse", status_text="Recherche du meilleur passage…")
+        profile = analysis.loudness_profile(src)
+        if info["duration"] > 100:
+            highlights = analysis.find_highlights(src, info["duration"], clip_len=target, profile=profile)
         if highlights:
-            best = highlights[0]
-            edit["start"], edit["end"] = best["start"], best["end"]
+            edit["start"], edit["end"] = highlights[0]["start"], highlights[0]["end"]
+        else:
+            edit["start"], edit["end"] = analysis.best_window(src, info["duration"], target, profile)
     project = load(pid)
     project.update(
         source={"file": file_name, **info},

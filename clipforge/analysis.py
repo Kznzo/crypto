@@ -403,8 +403,11 @@ def analyze_layout(src: str | Path, src_w: int, src_h: int, start: float = 0.0, 
     return geometry
 
 
-def find_highlights(src: str | Path, duration: float, clip_len: float = 45.0, count: int = 6) -> list[dict]:
-    """Repère les passages les plus « bruyants » (cris, rires, hype) d'une longue vidéo."""
+HOP = 0.5  # une mesure de volume toutes les 0,5 s
+
+
+def loudness_profile(src: str | Path) -> np.ndarray | None:
+    """Volume (dB) du son toutes les 0,5 s, ou None si la vidéo n'a pas de son lisible."""
     sr = 8000
     proc = subprocess.run(
         [ffmpeg_path(), "-hide_banner", "-v", "error", "-i", str(src), "-vn", "-ac", "1", "-ar", str(sr),
@@ -413,17 +416,54 @@ def find_highlights(src: str | Path, duration: float, clip_len: float = 45.0, co
         creationflags=_NO_WINDOW,
     )
     if proc.returncode != 0 or not proc.stdout:
-        return []
+        return None
     audio = np.frombuffer(proc.stdout, dtype=np.int16).astype(np.float32) / 32768.0
-    hop = sr // 2  # une mesure toutes les 0,5 s
+    hop = int(sr * HOP)
     n = len(audio) // hop
-    if n < 8:
-        return []
+    if n < 4:
+        return None
     blocks = audio[: n * hop].reshape(n, hop)
     rms = np.sqrt(np.mean(blocks**2, axis=1) + 1e-10)
-    db = 20 * np.log10(rms)
-    kernel = np.ones(4) / 4  # lissage sur 2 s
-    smooth = np.convolve(db, kernel, mode="same")
+    return 20 * np.log10(rms)
+
+
+def _snap_quiet(db: np.ndarray, t: float, before: float, after: float) -> float:
+    """Décale une coupe vers le moment le plus calme proche (évite de couper au milieu d'une phrase)."""
+    i0 = max(0, int((t - before) / HOP))
+    i1 = min(len(db), int((t + after) / HOP) + 1)
+    if i1 - i0 < 2:
+        return t
+    return (i0 + int(np.argmin(db[i0:i1]))) * HOP
+
+
+def best_window(src: str | Path, duration: float, length: float, profile: np.ndarray | None = None) -> tuple[float, float]:
+    """Meilleur passage de « length » secondes : celui où le son est le plus intense (cris, rires, hype)."""
+    if duration <= length + 0.5:
+        return 0.0, round(duration, 2)
+    db = profile if profile is not None else loudness_profile(src)
+    w = int(length / HOP)
+    if db is None or len(db) <= w:
+        return 0.0, round(min(duration, length), 2)
+    smooth = np.convolve(db, np.ones(4) / 4, mode="same")
+    sums = np.convolve(smooth, np.ones(w), mode="valid")  # somme sur chaque fenêtre possible
+    start = float(np.argmax(sums)) * HOP
+    # Coupes sur des moments calmes : on peut commencer un peu avant, et finir un peu plus tôt.
+    start = min(max(0.0, _snap_quiet(db, start, 1.5, 0.5)), max(0.0, duration - length))
+    end = min(duration, start + length)
+    snapped = _snap_quiet(db, end, 1.5, 0.0)
+    if end - snapped < 1.5 and snapped - start > length * 0.8:
+        end = snapped
+    return round(start, 2), round(end, 2)
+
+
+def find_highlights(src: str | Path, duration: float, clip_len: float = 45.0, count: int = 6,
+                    profile: np.ndarray | None = None) -> list[dict]:
+    """Repère les passages les plus « bruyants » (cris, rires, hype) d'une longue vidéo."""
+    db = profile if profile is not None else loudness_profile(src)
+    if db is None or len(db) < 8:
+        return []
+    n = len(db)
+    smooth = np.convolve(db, np.ones(4) / 4, mode="same")  # lissage sur 2 s
     # On compare au niveau sonore « normal » des 60 s autour.
     win = 120
     pad = np.pad(smooth, (win // 2, win // 2), mode="edge")
@@ -431,7 +471,7 @@ def find_highlights(src: str | Path, duration: float, clip_len: float = 45.0, co
     score = smooth - baseline
 
     picked: list[int] = []
-    min_gap = int(clip_len * 2)
+    min_gap = int(clip_len / HOP)
     for idx in np.argsort(-score):
         if score[idx] <= 1.5 or len(picked) >= count:
             break
@@ -439,10 +479,12 @@ def find_highlights(src: str | Path, duration: float, clip_len: float = 45.0, co
             picked.append(int(idx))
     results = []
     for idx in picked:
-        peak_t = idx * 0.5
-        start = max(0.0, peak_t - clip_len * 0.65)
+        peak_t = idx * HOP
+        start = max(0.0, peak_t - clip_len * 0.65)  # la montée avant le pic, puis la réaction
         end = min(duration, start + clip_len)
         start = max(0.0, end - clip_len)
+        start = max(0.0, min(_snap_quiet(db, start, 1.5, 0.5), peak_t - 1))
+        end = min(duration, start + clip_len)
         results.append({
             "start": round(start, 2),
             "end": round(end, 2),

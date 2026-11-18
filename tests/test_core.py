@@ -146,3 +146,26 @@ def test_twitch_links():
     meta = sources._meta({"channel": "ZeratoR", "categories": ["Just Chatting"],
                           "webpage_url": "https://www.twitch.tv/zerator/clip/AbcDef"})
     assert (meta["source"], meta["login"], meta["game"]) == ("twitch", "zerator", "Just Chatting")
+
+
+def test_clip_seconds():
+    from clipforge.config import clip_seconds
+    assert clip_seconds({}) == pytest.approx(61 - 3.6)  # 1 min 01 fin comprise
+    assert clip_seconds({"clip_length": 30}) == pytest.approx(26.4)
+    assert clip_seconds({"clip_length": 45, "promo_outro": False}) == 45
+    assert clip_seconds({"clip_length": 61, "vertical_max_seconds": 45}) == pytest.approx(41.4)  # plafonné
+
+
+def test_best_window_finds_the_loud_part(tmp_path):
+    from clipforge.ffmpeg_utils import ffmpeg_path, run
+    src = tmp_path / "bruit.mp4"
+    # 60 s : calme, puis un passage fort de 20 s à 32 s, puis calme.
+    res = run([ffmpeg_path(), "-hide_banner", "-v", "error", "-y",
+               "-f", "lavfi", "-i", "color=black:s=320x180:r=10:d=60",
+               "-f", "lavfi", "-i", "sine=frequency=500:d=60",
+               "-filter_complex", "[1:a]volume='if(between(t,20,32),1,0.02)':eval=frame[a]",
+               "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", str(src)])
+    assert res.returncode == 0, res.stderr
+    start, end = analysis.best_window(src, 60, 12)
+    assert 17 <= start <= 21 and end - start <= 12.01
+    assert analysis.best_window(src, 60, 90) == (0.0, 60)  # vidéo plus courte que la durée voulue
