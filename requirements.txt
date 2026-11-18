@@ -1,9 +1,10 @@
 fastapi>=0.110
 uvicorn>=0.27
 python-multipart>=0.0.9
-yt-dlp>=2025.1.0
-# Kick bloque les robots : yt-dlp a besoin de curl_cffi pour imiter un navigateur.
-curl_cffi>=0.10
+yt-dlp>=2025.11.12
+# YouTube : yt-dlp a besoin d'un moteur JavaScript (deno) et de ses scripts (yt-dlp-ejs).
+deno>=2.0
+yt-dlp-ejs>=0.3
 opencv-python-headless>=4.8
 numpy>=1.24
 pillow>=10.1

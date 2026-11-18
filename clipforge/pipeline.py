@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from . import analysis, captions, projects, render, social, twitch
+from . import analysis, captions, projects, render, social, sources
 from .config import PLATFORMS, load_settings
 from .jobs import Job, manager
 
@@ -32,9 +32,9 @@ def start_import_url(
 
         cookies = load_settings().get("twitch_cookies") or None
         if vod_start is not None and vod_end is not None:
-            file_name, meta = twitch.download_section(url, vod_start, vod_end, d, prog, cookies)
+            file_name, meta = sources.download_section(url, vod_start, vod_end, d, prog, cookies)
         else:
-            file_name, meta = twitch.download_clip(url, d, prog, cookies)
+            file_name, meta = sources.download_clip(url, d, prog, cookies)
 
         def apply_meta(p: dict) -> None:
             p["title"] = meta.get("title") or p["title"]
@@ -45,7 +45,7 @@ def start_import_url(
                 p["edit"]["title"]["text"] = p["title"]
             if meta.get("channel") and not p["edit"]["watermark"].get("text"):
                 login = meta.get("login") or meta["channel"].lower()
-                p["edit"]["watermark"]["text"] = twitch.channel_url(meta.get("source", "twitch"), login)
+                p["edit"]["watermark"]["text"] = sources.channel_url(meta.get("source", "twitch"), login)
                 p["edit"]["watermark"]["enabled"] = True
 
         projects.mutate(pid, apply_meta)
@@ -121,13 +121,13 @@ def start_transcribe(pid: str) -> Job:
         spoken = caps.get("spoken") or "auto"
         if spoken == "auto":
             # Twitch indique la langue de la chaîne : plus fiable que deviner sur 20 secondes de son.
-            # Clip Kick (ou Twitch sans langue) : l'IA détecte la langue toute seule.
+            # YouTube donne souvent la langue ; sinon l'IA la détecte toute seule.
             # Fichier envoyé : langue par défaut des réglages.
             origin = p.get("origin") or {}
             channel_lang = str(origin.get("language") or "").lower()[:2]
             if channel_lang in captions.LANGUAGES:
                 spoken = channel_lang
-            elif origin.get("source") not in ("twitch", "kick"):
+            elif origin.get("source") not in ("twitch", "youtube"):
                 spoken = settings.get("language", "auto")
         transcript = captions.transcribe(src, start, end, settings.get("whisper_model", "small"),
                                          spoken, prog, translate_to_english=bool(caps.get("english")))

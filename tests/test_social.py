@@ -73,20 +73,26 @@ def test_library_stats():
     assert stats["exports"] == {"tiktok": 1}
 
 
-def test_kick_texts_and_bios():
-    p = {"origin": {"channel": "xQc", "login": "xqc", "source": "kick", "game": "Just Chatting"},
-         "edit": {"title": {"text": "PIERRE POLE"}}}
-    texts = social.publish_texts(p, "en")
+def test_youtube_texts_and_bios():
+    p = {"origin": {"channel": "MrBeast", "login": "@MrBeast", "source": "youtube", "language": "en",
+                    "tags": ["challenge", "mrbeast"]},
+         "edit": {"title": {"text": "Trap Door Roulette"}}}
+    texts = social.publish_texts(p, "auto")
+    assert texts["lang"] == "en"
     tiktok = texts["platforms"]["tiktok"]["text"]
-    assert "kick.com/xqc" in tiktok and "#kickclips" in tiktok and "twitch" not in tiktok.lower()
-    assert "xQc kick" in texts["platforms"]["youtube"]["tags"]
+    assert "MrBeast on YouTube (youtube.com/@MrBeast)" in tiktok
+    assert "twitch" not in tiktok.lower()
+    kinds = {h["tag"]: h["kind"] for h in texts["platforms"]["tiktok"]["hashtags"]}
+    assert kinds["#mrbeast"] == "streamer" and kinds["#challenge"] == "origine"
+    assert "#shorts" == texts["platforms"]["shorts"]["hashtags"][0]["tag"]
+    assert "MrBeast shorts" in texts["platforms"]["youtube"]["tags"]
     fr = social.publish_texts(p, "fr")["platforms"]["tiktok"]["text"]
-    assert "#kickfr" in fr and "sur Kick" in fr
-    bios = social.generate_bios({"streamers": ["xQc"], "lang": "en", "platforms": "kick"})
-    assert "#kickclips" in bios["hashtags"] and "kick clips" in bios["youtube_keywords"]
+    assert "Vidéo de MrBeast sur YouTube" in fr and "#pourtoi" in fr
+    bios = social.generate_bios({"streamers": ["MrBeast"], "lang": "en", "platforms": "youtube"})
+    assert "youtube shorts" in bios["youtube_keywords"]
     assert not any("Twitch" in b for b in bios["tiktok"] + bios["instagram"] + bios["youtube"])
     both = social.generate_bios({"streamers": ["xQc"], "lang": "fr", "platforms": "both"})
-    assert "#twitchfr" in both["hashtags"] and "#kickfr" in both["hashtags"]
+    assert "#twitchfr" in both["hashtags"] and "Twitch et YouTube" in " ".join(both["tiktok"] + both["instagram"])
 
 
 @pytest.mark.parametrize("title, junk", [

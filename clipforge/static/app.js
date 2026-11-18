@@ -69,7 +69,11 @@ function fmtSize(bytes) {
 }
 function fmtViews(n) {
   if (n == null) return '';
-  return n >= 1000 ? `${(n / 1000).toFixed(1).replace('.', ',')} k vues` : `${n} vues`;
+  const f = (v) => (v >= 100 ? Math.round(v) : v.toFixed(1).replace('.', ',').replace(',0', ''));
+  if (n >= 1e9) return `${f(n / 1e9)} Md de vues`;
+  if (n >= 1e6) return `${f(n / 1e6)} M de vues`;
+  if (n >= 1e3) return `${f(n / 1e3)} k vues`;
+  return `${n} vues`;
 }
 
 const ICON = {
@@ -166,8 +170,8 @@ function HomeView() {
   app.innerHTML = `
     <section class="card hero">
       <div>
-        <h1>Tes clips Twitch et Kick, prêts pour TikTok, Reels et YouTube</h1>
-        <p class="lead">Colle un lien Twitch ou Kick (en anglais ou en français) : ClipForge détecte la facecam, recadre en vertical, ajoute des sous-titres animés (en anglais ou dans la langue du clip) et un titre accrocheur, exporte dans tous les formats et te prépare les descriptions avec hashtags.</p>
+        <h1>Tes clips Twitch et YouTube Shorts, prêts pour TikTok, Reels et YouTube</h1>
+        <p class="lead">Colle un lien Twitch ou YouTube Shorts (en anglais ou en français) : ClipForge détecte la facecam, recadre en vertical, ajoute des sous-titres animés (en anglais ou dans la langue du clip) et un titre accrocheur, exporte dans tous les formats et te prépare les descriptions avec hashtags.</p>
       </div>
       <div>
         <div class="tabs" id="tabs">
@@ -206,10 +210,10 @@ function HomeView() {
     const body = $('#tabBody');
     if (tab === 'lien') {
       body.innerHTML = `<form class="import-row" id="urlForm">
-          <input type="url" id="urlIn" placeholder="Lien d'un clip Twitch ou Kick (https://…)" autocomplete="off" required>
+          <input type="url" id="urlIn" placeholder="Lien d'un clip Twitch ou d'un YouTube Short (https://…)" autocomplete="off" required>
           <button class="btn-primary btn-big" type="submit">Importer</button>
         </form>
-        <p class="muted small">Astuce : ouvre le clip sur Twitch ou Kick → « Partager » → « Copier le lien ». Exemples : twitch.tv/…/clip/… · clips.twitch.tv/… · kick.com/…/clips/clip_…</p>`;
+        <p class="muted small">Astuce : ouvre le clip Twitch ou le Short → « Partager » → « Copier le lien ». Exemples : twitch.tv/…/clip/… · clips.twitch.tv/… · youtube.com/shorts/…</p>`;
       $('#urlForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         await importUrl($('#urlIn').value.trim(), e.submitter);
@@ -219,14 +223,15 @@ function HomeView() {
       const src = store.get('chSource', 'twitch');
       body.innerHTML = `<div class="seg" id="chSrc" style="margin-bottom:10px">
           <button data-v="twitch" class="${src === 'twitch' ? 'on' : ''}">Twitch</button>
-          <button data-v="kick" class="${src === 'kick' ? 'on' : ''}">Kick</button></div>
+          <button data-v="youtube" class="${src === 'youtube' ? 'on' : ''}">YouTube Shorts</button></div>
         <form class="import-row" id="chForm">
-          <input type="text" id="chIn" placeholder="Nom de la chaîne ${src === 'kick' ? 'Kick (ex : xqc)' : 'Twitch (ex : shroud)'}" value="${esc(store.get('channel_' + src, ''))}" required autocomplete="off">
-          <select id="chPeriod" style="width:auto;min-height:54px">
+          <input type="text" id="chIn" placeholder="${src === 'youtube' ? 'Chaîne YouTube (ex : @MrBeast)' : 'Nom de la chaîne Twitch (ex : shroud)'}" value="${esc(store.get('channel_' + src, ''))}" required autocomplete="off">
+          <select id="chPeriod" style="width:auto;min-height:54px" ${src === 'youtube' ? 'hidden' : ''}>
             <option value="24h">24 h</option><option value="7j" selected>7 jours</option><option value="30j">30 jours</option><option value="tout">Depuis toujours</option>
           </select>
           <button class="btn-primary btn-big" type="submit">Voir les clips</button>
         </form>
+        ${src === 'youtube' ? '<p class="muted small">Les Shorts les plus vus parmi les 60 derniers de la chaîne.</p>' : ''}
         <div id="clipRes"></div>`;
       $('#chPeriod').value = store.get('period', '7j');
       $('#chSrc').addEventListener('click', (e) => {
@@ -251,7 +256,7 @@ function HomeView() {
       if (clips.length) renderClips();
     } else if (tab === 'vod') {
       body.innerHTML = `<form class="stack" id="vodForm">
-          <input type="url" id="vodUrl" placeholder="https://www.twitch.tv/videos/…  ou  https://kick.com/…/videos/…" required autocomplete="off">
+          <input type="url" id="vodUrl" placeholder="https://www.twitch.tv/videos/123456789" required autocomplete="off">
           <div class="row">
             <label class="field grow">Début du passage<input type="text" id="vodStart" placeholder="1:23:00" required></label>
             <label class="field grow">Fin du passage<input type="text" id="vodEnd" placeholder="1:33:00" required></label>
@@ -377,7 +382,7 @@ function HomeView() {
           <div class="thumb" style="background-image:url('${p.has_thumb ? `/api/projects/${p.id}/thumb` : ''}')">${p.duration ? `<span class="dur">${fmtDur(p.duration)}</span>` : ''}</div>
           <div class="body">
             <div class="title">${esc(p.title)}</div>
-            ${p.channel ? `<div class="muted small">${esc(p.channel)}${p.source ? ` · ${p.source === 'kick' ? 'Kick' : 'Twitch'}` : ''}</div>` : ''}
+            ${p.channel ? `<div class="muted small">${esc(p.channel)}${p.source ? ` · ${p.source === 'youtube' ? 'YouTube' : 'Twitch'}` : ''}</div>` : ''}
             <div class="foot">${badge}${p.exports.map((k) => `<span class="badge ok"><span class="dot ${k}"></span>${esc(INFO.platforms[k].label)}</span>`).join('')}
               <button class="btn-ghost btn-sm icon-btn btn-danger" data-del="${p.id}" title="Supprimer" style="margin-left:auto">${ICON.trash}</button></div>
           </div></div>`;
@@ -1089,6 +1094,14 @@ function EditorView(id) {
       ctx.imageSmoothingQuality = 'high';
       if (!p.vertical) {
         const sc = Math.min(W / sw, H / sh);
+        if (sw / sh < 1.2) {
+          // Vidéo verticale vers 16:9 : fond flou comme dans l'export.
+          small.width = 80; small.height = 45;
+          small.getContext('2d').drawImage(video, 0, (sh - sw * 45 / 80) / 2, sw, sw * 45 / 80, 0, 0, 80, 45);
+          ctx.filter = 'blur(18px) brightness(0.85) saturate(1.25)';
+          ctx.drawImage(small, -40, -40, W + 80, H + 80);
+          ctx.filter = 'none';
+        }
         ctx.drawImage(video, (W - sw * sc) / 2, (H - sh * sc) / 2, sw * sc, sh * sc);
       } else if (edit.layout === 'split') {
         const [top, bottom] = splitHeights(edit.split_ratio, H);
@@ -1357,7 +1370,7 @@ function EditorView(id) {
     const box = $('#pubBody');
     if (!box || !pubData) return;
     const e = pubData.platforms[pubPlatform];
-    const kinds = { streamer: 'Streamer', jeu: 'Jeu', niche: 'Niche', large: 'Large', format: 'Format' };
+    const kinds = { streamer: 'Créateur', jeu: 'Jeu', origine: 'Origine', niche: 'Niche', large: 'Large', format: 'Format' };
     const hasSrt = P.transcript && P.transcript.segments.length && (pubPlatform === 'youtube' || pubPlatform === 'shorts');
     box.innerHTML = `
       ${e.title ? `<label class="field">Titre<input type="text" id="pubTitle" value="${esc(e.title)}" maxlength="100"></label>` : ''}
@@ -1555,7 +1568,7 @@ function BiosView() {
           </div>
           <div><div class="muted small" style="margin-bottom:6px">Streamers que tu clippes le plus</div><div class="stat-list">${chips(st.channels)}</div></div>
           <div><div class="muted small" style="margin-bottom:6px">Jeux les plus présents</div><div class="stat-list">${chips(st.games)}</div></div>
-          <div><div class="muted small" style="margin-bottom:6px">Plateformes</div><div class="stat-list">${chips(Object.entries(st.sources || {}).map(([k, n]) => [k === 'kick' ? 'Kick' : 'Twitch', n]))}</div></div>
+          <div><div class="muted small" style="margin-bottom:6px">Plateformes</div><div class="stat-list">${chips(Object.entries(st.sources || {}).map(([k, n]) => [k === 'youtube' ? 'YouTube' : 'Twitch', n]))}</div></div>
           <p class="muted small" style="margin:0">Les bios sont pré-remplies avec ce que tu clippes le plus. Les stats internes de TikTok et Instagram ne sont pas publiques : les propositions suivent leurs règles (limites, nombre de hashtags) et ta niche.</p>
         </div>
         <form class="card stack" id="bioForm">
@@ -1565,7 +1578,7 @@ function BiosView() {
           <label class="field">Jeux / thèmes<input type="text" name="games" value="${esc((pr.games || []).join(', '))}" placeholder="Ex : Valorant, Just Chatting"></label>
           <div class="row">
             <label class="field grow">Langue des bios<select name="lang"><option value="en" ${pr.lang !== 'fr' ? 'selected' : ''}>Anglais</option><option value="fr" ${pr.lang === 'fr' ? 'selected' : ''}>Français</option></select></label>
-            <label class="field grow">Tu clippes<select name="platforms">${[['twitch', 'Twitch'], ['kick', 'Kick'], ['both', 'Twitch et Kick']].map(([v, l]) => `<option value="${v}" ${(pr.platforms || 'twitch') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            <label class="field grow">Tu clippes<select name="platforms">${[['twitch', 'Twitch'], ['youtube', 'YouTube Shorts'], ['both', 'Twitch et YouTube']].map(([v, l]) => `<option value="${v}" ${(pr.platforms || 'twitch') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           </div>
           <div class="row">
             <label class="field grow">Fréquence de post<input type="text" name="frequency" maxlength="30" value="${esc(pr.frequency || '')}" placeholder="daily / chaque jour"></label>
@@ -1624,9 +1637,9 @@ function SettingsView() {
           <label class="field">Style du titre<select id="sTitle">${opt(Object.entries(INFO.title_styles).map(([k, v]) => [k, v.label]), s.default_title_style)}</select></label>
         </div>
         <div class="card stack">
-          <h2>Compte Twitch / Kick</h2>
-          <label class="field">Réutiliser ma connexion Twitch / Kick du navigateur<select id="sCookies">${opt([['', 'Non (vidéos publiques seulement)'], ['firefox', 'Firefox (conseillé)'], ['chrome', 'Chrome'], ['edge', 'Edge'], ['brave', 'Brave'], ['opera', 'Opera'], ['safari', 'Safari (Mac)']], s.twitch_cookies || '')}</select></label>
-          <p class="muted small">Utile seulement pour les VOD réservées aux abonnés : sois connecté à Twitch ou Kick dans ce navigateur sur le PC. Rien n'est envoyé ailleurs que vers ces sites.</p>
+          <h2>Compte Twitch / YouTube</h2>
+          <label class="field">Réutiliser ma connexion Twitch / YouTube du navigateur<select id="sCookies">${opt([['', 'Non (vidéos publiques seulement)'], ['firefox', 'Firefox (conseillé)'], ['chrome', 'Chrome'], ['edge', 'Edge'], ['brave', 'Brave'], ['opera', 'Opera'], ['safari', 'Safari (Mac)']], s.twitch_cookies || '')}</select></label>
+          <p class="muted small">Utile pour les VOD Twitch réservées aux abonnés, ou si YouTube demande de prouver que tu n'es pas un robot : sois connecté à Twitch ou YouTube dans ce navigateur sur le PC. Rien n'est envoyé ailleurs que vers ces sites.</p>
         </div>
       </div>
       <div class="row" style="margin-top:18px;justify-content:flex-end"><button class="btn-primary btn-big" id="sSave">Enregistrer</button></div>`;

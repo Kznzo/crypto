@@ -1,6 +1,6 @@
 # ClipForge 🎬
 
-**Transforme tes clips Twitch et Kick en vidéos prêtes à poster sur TikTok, Instagram Reels, YouTube Shorts et YouTube, avec le montage fait automatiquement.**
+**Transforme tes clips Twitch et tes YouTube Shorts en vidéos prêtes à poster sur TikTok, Instagram Reels, YouTube Shorts et YouTube, avec le montage fait automatiquement.**
 
 ClipForge tourne sur ton PC et s'utilise depuis le navigateur du PC **ou de ta tablette** (même Wi-Fi).
 Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
@@ -10,9 +10,9 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 ## Ce que fait l'appli
 
 **Importer**
-- 🔗 Coller le lien d'un **clip Twitch ou Kick** (`twitch.tv/…/clip/…`, `clips.twitch.tv/…`, `kick.com/…/clips/clip_…`)
-- 🏆 Afficher les **clips les plus vus d'une chaîne Twitch ou Kick** (24 h, 7 j, 30 j, depuis toujours) et en importer plusieurs d'un coup
-- 📺 Récupérer **un passage d'une VOD** Twitch ou Kick (ex. de 1:20:00 à 1:30:00) : seul ce passage est téléchargé
+- 🔗 Coller le lien d'un **clip Twitch** (`twitch.tv/…/clip/…`, `clips.twitch.tv/…`) ou d'un **YouTube Short** (`youtube.com/shorts/…`)
+- 🏆 Afficher les **clips les plus vus d'une chaîne Twitch** (24 h, 7 j, 30 j, depuis toujours) ou les **Shorts les plus vus d'une chaîne YouTube** (`@pseudo`), et en importer plusieurs d'un coup
+- 📺 Récupérer **un passage d'une VOD Twitch** (ex. de 1:20:00 à 1:30:00) : seul ce passage est téléchargé
 - 📁 Envoyer un **fichier vidéo** depuis le PC ou la tablette
 
 **Montage automatique**
@@ -20,8 +20,9 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
   - *Facecam + jeu* : la webcam en haut, le jeu en bas (le format le plus utilisé)
   - *Vidéo entière sur fond flou*
   - *Plein écran vertical* recadré sur les personnes (IRL, Just Chatting)
+  - vidéo **déjà verticale** (YouTube Short) : gardée entière ; la version YouTube 16:9 la place sur un fond flou
 - 💬 **Sous-titres animés mot par mot** générés par IA à partir de la voix (5 styles, corrigeables à la main)
-  - clips en **anglais** : sous-titres en anglais (langue reprise de la chaîne Twitch, ou détectée par l'IA pour Kick)
+  - vidéos en **anglais** : sous-titres en anglais (langue reprise de Twitch ou de YouTube, sinon détectée par l'IA)
   - option **« Sous-titres en anglais »** : un clip en français (ou autre) est traduit en anglais
   - fichier **.srt** pour YouTube (sous-titres activables + meilleur référencement)
 - 🔥 **Moments forts** : sur une longue vidéo, l'appli repère les passages où ça crie, rit ou s'emballe
@@ -39,7 +40,7 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 | YouTube | 1920 × 1080 | illimitée |
 
 **Textes pour publier** (onglet Exporter), en anglais ou en français selon le clip :
-- **TikTok / Reels** : légende avec accroche, crédit du streamer (`twitch.tv/…` ou `kick.com/…`), appel à s'abonner et 5 hashtags (`#kickclips` pour un clip Kick)
+- **TikTok / Reels** : légende avec accroche, crédit du créateur (`twitch.tv/…` ou `youtube.com/@…`), appel à s'abonner et 5 hashtags (pour un Short : les hashtags que son créateur utilisait déjà sont repris)
 - **Shorts** : titre + description, `#shorts` et 3 hashtags (ceux affichés au-dessus du titre)
 - **YouTube** : titre (100 caractères max), description, hashtags et **tags** pour YouTube Studio
 - Hashtags choisis dans cet ordre : le **streamer** (ses fans le cherchent), le **jeu** (sa communauté), un tag **de niche**, puis des tags **larges** ; touche un hashtag pour voir pourquoi il est là. Bouton « Autre version » pour varier.
@@ -112,10 +113,10 @@ ClipForge utilise automatiquement la carte graphique si elle le permet (NVIDIA, 
 Dans **Réglages**, passe la précision sur *Très précis* (plus lent). Tu peux aussi corriger chaque phrase à la main dans l'onglet Sous-titres. La première génération télécharge le modèle d'IA (une seule fois).
 
 **« Cette vidéo est réservée aux abonnés ».**
-Beaucoup de streamers réservent leurs VOD aux abonnés. Si tu es abonné, va dans **Réglages → Compte Twitch / Kick**, choisis le navigateur où tu es connecté (Firefox conseillé), puis réessaie.
+Beaucoup de streamers réservent leurs VOD aux abonnés. Si tu es abonné, va dans **Réglages → Compte Twitch / YouTube**, choisis le navigateur où tu es connecté (Firefox conseillé), puis réessaie.
 
-**Un clip Kick ne se télécharge pas.**
-Kick bloque les robots : ClipForge imite un vrai navigateur grâce au module `curl_cffi` (installé par le lanceur). Si le message en parle, relance simplement le lanceur.
+**Un YouTube Short ne se télécharge pas.**
+YouTube demande un moteur JavaScript (`deno`, installé par le lanceur) et bloque parfois les téléchargements (« prouve que tu n'es pas un robot »). Dans ce cas, va dans **Réglages → Compte Twitch / YouTube** et choisis le navigateur où tu es connecté à YouTube.
 
 **Mes emojis n'apparaissent pas sur la vidéo.**
 Les polices incrustées n'ont pas d'emojis : ils sont retirés de l'image, mais gardés dans la description proposée.
@@ -144,7 +145,7 @@ python -m pytest
 clipforge/
   server.py       API web (FastAPI) + accès tablette protégé par clé
   pipeline.py     enchaînement import → analyse → sous-titres → exports
-  twitch.py       clips Twitch et Kick, top clips d'une chaîne, passages de VOD (yt-dlp + HLS)
+  sources.py      clips et VOD Twitch, YouTube Shorts, top clips / Shorts d'une chaîne (yt-dlp + HLS)
   analysis.py     détection de facecam (YuNet), mise en page auto, moments forts
   captions.py     transcription / traduction en anglais (faster-whisper), blocs de mots, .srt
   social.py       descriptions, hashtags, tags YouTube, bios de profil, stats de la bibliothèque

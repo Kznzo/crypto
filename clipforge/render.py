@@ -50,6 +50,15 @@ def build_video_filters(edit: dict, source: dict, platform: str) -> list[str]:
     fps = min(60.0, source.get("fps") or 30.0)
     pre = f"[0:v]fps={fps:g},setsar=1" if (source.get("fps") or 30) > 60.5 else "[0:v]setsar=1"
     if not p["vertical"]:
+        if sw / sh < 1.2:
+            # Vidéo verticale ou carrée vers YouTube 16:9 : au centre, sur un fond flou plutôt que des bandes noires.
+            return [
+                f"{pre},split=2[s_bg][s_fg]",
+                f"[s_bg]scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,crop={W // 4}:{H // 4},"
+                f"boxblur=10:3,eq=brightness=-0.12:saturation=1.25,scale={W}:{H},setsar=1[bg]",
+                f"[s_fg]scale=-2:{H},setsar=1[fg]",
+                "[bg][fg]overlay=x=(W-w)/2:y=0:shortest=1[base]",
+            ]
         return [
             f"{pre},scale={W}:{H}:force_original_aspect_ratio=decrease,"
             f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[base]"

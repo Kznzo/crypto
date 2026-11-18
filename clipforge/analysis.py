@@ -335,6 +335,17 @@ def analyze_layout(src: str | Path, src_w: int, src_h: int, start: float = 0.0, 
     """Choisit automatiquement la meilleure mise en page verticale pour le clip."""
     geometry = default_edit_geometry(src_w, src_h)
     src_aspect = src_w / src_h
+    if src_aspect < 0.75:
+        # Vidéo déjà verticale (YouTube Short, TikTok…) : on la garde entière, en plein écran.
+        geometry.update(
+            layout="crop",
+            crop=crop_rect_9_16(src_aspect),
+            auto_reason="Vidéo déjà verticale : gardée en plein écran.",
+        )
+        return geometry
+    if src_aspect < 1.2:
+        geometry.update(layout="blur", auto_reason="Vidéo carrée : affichée en entier sur fond flou.")
+        return geometry
     frames = sample_frames(src, 10, start, end)
     if not frames:
         return {**geometry, "auto_reason": "Impossible de lire les images : fond flou par défaut."}

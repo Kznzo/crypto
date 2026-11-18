@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, captions, pipeline, projects, render, social, twitch
+from . import __version__, captions, pipeline, projects, render, social, sources
 from .analysis import clamp_rect
 from .config import CAPTION_STYLES, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, load_settings, save_settings
 from .ffmpeg_utils import available_hw_encoder
@@ -188,7 +188,7 @@ async def put_settings(request: Request):
         raise HTTPException(400, "Modèle inconnu")
     if "default_formats" in data:
         data["default_formats"] = [f for f in data["default_formats"] if f in PLATFORMS]
-    if data.get("twitch_cookies") not in (None, "", *twitch.COOKIE_BROWSERS):
+    if data.get("twitch_cookies") not in (None, "", *sources.COOKIE_BROWSERS):
         raise HTTPException(400, "Navigateur inconnu")
     if data.get("language") not in (None, *captions.LANGUAGES):
         raise HTTPException(400, "Langue inconnue")
@@ -229,14 +229,14 @@ async def create_from_url(request: Request):
     data = await request.json()
     url = (data.get("url") or "").strip()
     if not re.match(r"^https?://", url):
-        if re.match(r"^(www\.)?((clips\.)?twitch\.tv|kick\.com)/", url):
+        if re.match(r"^(www\.|m\.)?((clips\.)?twitch\.tv|youtube\.com|youtu\.be)/", url):
             url = "https://" + url
         else:
             raise HTTPException(400, "Colle un lien qui commence par https://")
-    vod_start = twitch.parse_time(data.get("vod_start"))
-    vod_end = twitch.parse_time(data.get("vod_end"))
-    if twitch.is_vod_url(url) and (vod_start is None or vod_end is None):
-        start_from_url = twitch.vod_start_from_url(url)
+    vod_start = sources.parse_time(data.get("vod_start"))
+    vod_end = sources.parse_time(data.get("vod_end"))
+    if sources.is_vod_url(url) and (vod_start is None or vod_end is None):
+        start_from_url = sources.vod_start_from_url(url)
         if start_from_url is not None and vod_start is None:
             vod_start = start_from_url
         if vod_start is None or vod_end is None:
@@ -306,7 +306,7 @@ def subtitles_srt(pid: str, platform: str = "youtube"):
 def _suggested_profile(stats: dict) -> dict:
     langs = [lang for lang, _ in stats["languages"]]
     sources = stats.get("sources") or {}
-    platforms = "both" if len(sources) > 1 else ("kick" if "kick" in sources else "twitch")
+    platforms = "both" if len(sources) > 1 else ("youtube" if "youtube" in sources else "twitch")
     return {
         "platforms": platforms,
         "account_name": "",
@@ -342,7 +342,7 @@ async def post_bios(request: Request):
         "streamers": as_list(raw.get("streamers")),
         "games": as_list(raw.get("games")),
         "lang": "fr" if raw.get("lang") == "fr" else "en",
-        "platforms": raw.get("platforms") if raw.get("platforms") in ("twitch", "kick", "both") else "twitch",
+        "platforms": raw.get("platforms") if raw.get("platforms") in ("twitch", "youtube", "both") else "twitch",
         "link": str(raw.get("link") or "")[:100],
         "frequency": str(raw.get("frequency") or "")[:30],
     }
@@ -546,9 +546,9 @@ def cancel_job(job_id: str):
 
 @app.get("/api/channel-clips")
 def channel_clips(channel: str, period: str = "7j", source: str = "twitch"):
-    if source not in twitch.SOURCES:
+    if source not in sources.SOURCES:
         raise HTTPException(400, "Plateforme inconnue")
     try:
-        return twitch.channel_clips(channel, period, source=source)
-    except twitch.DownloadError as exc:
+        return sources.channel_clips(channel, period, source=source)
+    except sources.DownloadError as exc:
         raise HTTPException(400, str(exc)) from None

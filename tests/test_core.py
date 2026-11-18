@@ -1,7 +1,7 @@
 """Tests des fonctions pures (sans réseau ni encodage)."""
 import pytest
 
-from clipforge import analysis, captions, twitch
+from clipforge import analysis, captions, sources
 from clipforge.overlays import compute_placement, strip_emoji
 from clipforge.render import build_video_filters, clip_bounds
 from clipforge.server import _sanitize_edit
@@ -21,20 +21,20 @@ from clipforge.server import _sanitize_edit
     ],
 )
 def test_parse_time(value, expected):
-    assert twitch.parse_time(value) == expected
+    assert sources.parse_time(value) == expected
 
 
 def test_normalize_channel():
-    assert twitch.normalize_channel("https://www.twitch.tv/ZeratoR/clips") == "zerator"
-    assert twitch.normalize_channel("@Gotaga") == "gotaga"
-    with pytest.raises(twitch.DownloadError):
-        twitch.normalize_channel("pas valide !")
+    assert sources.normalize_channel("https://www.twitch.tv/ZeratoR/clips") == "zerator"
+    assert sources.normalize_channel("@Gotaga") == "gotaga"
+    with pytest.raises(sources.DownloadError):
+        sources.normalize_channel("pas valide !")
 
 
 def test_vod_helpers():
-    assert twitch.is_vod_url("https://www.twitch.tv/videos/123456?t=1h2m3s")
-    assert not twitch.is_vod_url("https://www.twitch.tv/zerator/clip/AbcDef")
-    assert twitch.vod_start_from_url("https://www.twitch.tv/videos/1?t=1h2m3s") == 3723
+    assert sources.is_vod_url("https://www.twitch.tv/videos/123456?t=1h2m3s")
+    assert not sources.is_vod_url("https://www.twitch.tv/zerator/clip/AbcDef")
+    assert sources.vod_start_from_url("https://www.twitch.tv/videos/1?t=1h2m3s") == 3723
 
 
 def test_parse_media_playlist():
@@ -47,7 +47,7 @@ def test_parse_media_playlist():
 #EXTINF:4.5,
 2.mp4
 #EXT-X-ENDLIST"""
-    init, segs = twitch.parse_media_playlist(text, "https://cdn.example/vod/1080p60/index-dvr.m3u8")
+    init, segs = sources.parse_media_playlist(text, "https://cdn.example/vod/1080p60/index-dvr.m3u8")
     assert init == "https://cdn.example/vod/1080p60/init-0.mp4"
     assert [(s, e) for s, e, _ in segs] == [(0, 10), (10, 20), (20, 24.5)]
     assert segs[2][2] == "https://cdn.example/vod/1080p60/2.mp4"
@@ -135,15 +135,24 @@ def test_sanitize_edit_clamps_values():
     assert out["end"] == 30
 
 
-def test_kick_links():
-    assert twitch.source_of("https://kick.com/xqc/clips/clip_01M76VP53ZKBQB80E9SPBG9YCY") == "kick"
-    assert twitch.source_of("kick.com/xqc?clip=clip_01ABC") == "kick"
-    assert twitch.source_of("https://clips.twitch.tv/AbcDef") == "twitch"
-    assert twitch.source_of("https://example.com/video.mp4") == "autre"
-    assert twitch.is_vod_url("https://kick.com/xqc/videos/01a1ed57-2610-76fd-8ff7-96c8cbb0c1f4")
-    assert not twitch.is_vod_url("https://kick.com/xqc/clips/clip_01M76VP53ZKBQB80E9SPBG9YCY")
-    assert twitch.normalize_channel("https://kick.com/adin-ross", "kick") == "adin-ross"
-    assert twitch.channel_url("kick", "xqc") == "kick.com/xqc"
-    meta = twitch._meta({"channel": "xQc", "uploader_id": "xqc", "categories": ["Just Chatting"],
-                         "webpage_url": "https://kick.com/xqc/clips/clip_1"})
-    assert (meta["source"], meta["login"], meta["game"]) == ("kick", "xqc", "Just Chatting")
+def test_youtube_links():
+    assert sources.source_of("https://www.youtube.com/shorts/kPI9Mc35mOg") == "youtube"
+    assert sources.source_of("youtu.be/kPI9Mc35mOg") == "youtube"
+    assert sources.source_of("https://clips.twitch.tv/AbcDef") == "twitch"
+    assert sources.source_of("https://example.com/video.mp4") == "autre"
+    assert sources.normalize_channel("MrBeast", "youtube") == "@MrBeast"
+    assert sources.normalize_channel("https://www.youtube.com/@MrBeast/shorts", "youtube") == "@MrBeast"
+    assert sources.normalize_channel("UCX6OQ3DkcsbYNE6H8uQQuVA", "youtube") == "channel/UCX6OQ3DkcsbYNE6H8uQQuVA"
+    with pytest.raises(sources.DownloadError):
+        sources.normalize_channel("pas valide !", "youtube")
+    assert sources.channel_url("youtube", "@MrBeast") == "youtube.com/@MrBeast"
+    assert sources.clean_title("Trap Door Roulette #shorts #funny") == "Trap Door Roulette"
+    meta = sources._meta({
+        "title": "Trap Door Roulette #shorts #challenge", "channel": "MrBeast", "uploader_id": "@MrBeast",
+        "language": "en", "categories": ["Entertainment"], "tags": ["mrbeast", "Trap Door"],
+        "description": "New video! #MrBeast #challenge", "webpage_url": "https://www.youtube.com/watch?v=kPI9Mc35mOg",
+    })
+    assert (meta["source"], meta["login"], meta["title"], meta["language"]) == ("youtube", "@MrBeast", "Trap Door Roulette", "en")
+    assert meta["game"] is None
+    assert meta["tags"][:2] == ["challenge", "mrbeast"]
+    assert "shorts" not in meta["tags"]
