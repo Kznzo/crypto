@@ -1,0 +1,187 @@
+"""Chemins, réglages persistants et préréglages des plateformes."""
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import threading
+from pathlib import Path
+
+PACKAGE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = PACKAGE_DIR / "assets"
+FONTS_DIR = ASSETS_DIR / "fonts"
+MODELS_DIR = ASSETS_DIR / "models"
+STATIC_DIR = PACKAGE_DIR / "static"
+
+DATA_DIR = Path(os.environ.get("CLIPFORGE_DATA", PACKAGE_DIR.parent / "data")).resolve()
+PROJECTS_DIR = DATA_DIR / "projets"
+SETTINGS_FILE = DATA_DIR / "reglages.json"
+
+FONTS = {
+    "anton": FONTS_DIR / "Anton-Regular.ttf",
+    "poppins": FONTS_DIR / "Poppins-ExtraBold.ttf",
+    "poppins-bold": FONTS_DIR / "Poppins-Bold.ttf",
+}
+
+# ---------------------------------------------------------------------------
+# Plateformes de sortie.
+# safe_top / safe_bottom / safe_right : fractions de l'image masquées par
+# l'interface de l'appli (boutons, description…). On y évite le texte.
+# ---------------------------------------------------------------------------
+PLATFORMS: dict[str, dict] = {
+    "tiktok": {
+        "label": "TikTok",
+        "width": 1080,
+        "height": 1920,
+        "vertical": True,
+        "max_duration": 600,
+        "recommended": "21 à 60 s",
+        "safe_top": 0.09,
+        "safe_bottom": 0.21,
+        "safe_right": 0.13,
+        "hashtags": ["#twitch", "#twitchfr", "#clip", "#streamer", "#pourtoi", "#fyp"],
+    },
+    "reels": {
+        "label": "Instagram Reels",
+        "width": 1080,
+        "height": 1920,
+        "vertical": True,
+        "max_duration": 180,
+        "recommended": "15 à 90 s",
+        "safe_top": 0.11,
+        "safe_bottom": 0.23,
+        "safe_right": 0.12,
+        "hashtags": ["#reels", "#twitch", "#twitchfr", "#streamer", "#gaming", "#explore"],
+    },
+    "shorts": {
+        "label": "YouTube Shorts",
+        "width": 1080,
+        "height": 1920,
+        "vertical": True,
+        "max_duration": 180,
+        "recommended": "15 à 60 s",
+        "safe_top": 0.10,
+        "safe_bottom": 0.20,
+        "safe_right": 0.12,
+        "hashtags": ["#shorts", "#twitch", "#twitchfr", "#gaming", "#clip"],
+    },
+    "youtube": {
+        "label": "YouTube (16:9)",
+        "width": 1920,
+        "height": 1080,
+        "vertical": False,
+        "max_duration": None,
+        "recommended": "toute durée",
+        "safe_top": 0.05,
+        "safe_bottom": 0.08,
+        "safe_right": 0.0,
+        "hashtags": ["#twitch", "#twitchfr", "#bestof", "#clip"],
+    },
+}
+
+CAPTION_STYLES: dict[str, dict] = {
+    "tiktok": {
+        "label": "TikTok (mot en jaune)",
+        "font": "anton",
+        "color": "#FFFFFF",
+        "highlight": "#FFE21F",
+        "stroke": "#000000",
+        "box": None,
+        "uppercase": True,
+        "pop": True,
+    },
+    "vert": {
+        "label": "Karaoké vert",
+        "font": "poppins",
+        "color": "#FFFFFF",
+        "highlight": "#39FF6A",
+        "stroke": "#000000",
+        "box": None,
+        "uppercase": True,
+        "pop": True,
+    },
+    "violet": {
+        "label": "Twitch violet",
+        "font": "poppins",
+        "color": "#FFFFFF",
+        "highlight": "#FFFFFF",
+        "highlight_box": "#9146FF",
+        "stroke": "#000000",
+        "box": None,
+        "uppercase": False,
+        "pop": False,
+    },
+    "boite": {
+        "label": "Blanc sur fond noir",
+        "font": "poppins-bold",
+        "color": "#FFFFFF",
+        "highlight": "#FFFFFF",
+        "stroke": None,
+        "box": "#000000B4",
+        "uppercase": False,
+        "pop": False,
+    },
+    "simple": {
+        "label": "Classique blanc",
+        "font": "poppins-bold",
+        "color": "#FFFFFF",
+        "highlight": "#FFFFFF",
+        "stroke": "#000000",
+        "box": None,
+        "uppercase": False,
+        "pop": False,
+    },
+}
+
+TITLE_STYLES: dict[str, dict] = {
+    "blanc": {"label": "Bandeau blanc", "font": "poppins", "color": "#000000", "box": "#FFFFFF"},
+    "noir": {"label": "Bandeau noir", "font": "poppins", "color": "#FFFFFF", "box": "#000000E6"},
+    "violet": {"label": "Bandeau violet", "font": "poppins", "color": "#FFFFFF", "box": "#9146FF"},
+    "contour": {"label": "Gros texte contour", "font": "anton", "color": "#FFFFFF", "box": None, "stroke": "#000000"},
+}
+
+DEFAULT_SETTINGS = {
+    "whisper_model": "small",
+    "language": "fr",
+    "quality": "equilibre",  # rapide | equilibre | max
+    "gpu": "auto",  # auto | off
+    "default_watermark": "",
+    "default_caption_style": "tiktok",
+    "default_title_style": "blanc",
+    "default_formats": ["tiktok", "reels", "shorts"],
+    "twitch_cookies": "",  # navigateur dont on réutilise la connexion Twitch (VOD abonnés)
+    "access_key": "",
+}
+
+_settings_lock = threading.Lock()
+
+
+def ensure_dirs() -> None:
+    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_settings() -> dict:
+    ensure_dirs()
+    with _settings_lock:
+        data = {}
+        if SETTINGS_FILE.exists():
+            try:
+                data = json.loads(SETTINGS_FILE.read_text("utf-8"))
+            except (OSError, ValueError):
+                data = {}
+        merged = {**DEFAULT_SETTINGS, **data}
+        if not merged.get("access_key"):
+            merged["access_key"] = secrets.token_urlsafe(9)
+            SETTINGS_FILE.write_text(json.dumps(merged, indent=2, ensure_ascii=False), "utf-8")
+        return merged
+
+
+def save_settings(update: dict) -> dict:
+    current = load_settings()
+    allowed = set(DEFAULT_SETTINGS) - {"access_key"}
+    for key, value in update.items():
+        if key in allowed:
+            current[key] = value
+    with _settings_lock:
+        SETTINGS_FILE.write_text(json.dumps(current, indent=2, ensure_ascii=False), "utf-8")
+    return current

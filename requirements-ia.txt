@@ -1,0 +1,2 @@
+# Sous-titres automatiques (reconnaissance vocale). Optionnel : l'appli marche sans.
+faster-whisper>=1.0
