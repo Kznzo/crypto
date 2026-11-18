@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import io
+import time
 import ipaddress
 import re
 import shutil
@@ -14,10 +15,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, captions, pipeline, projects, promo, render, social, sources
+from . import __version__, captions, compilations, pipeline, projects, promo, render, social, sources
 from .analysis import clamp_rect
 from .config import (
-    CAPTION_STYLES, DATA_DIR, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, load_settings, save_settings,
+    CAPTION_STYLES, DATA_DIR, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, load_settings, platforms_for,
+    save_settings,
 )
 from .ffmpeg_utils import available_hw_encoder
 from .jobs import manager
@@ -145,7 +147,7 @@ def info(request: Request):
     local = _is_local(request)
     return {
         "version": __version__,
-        "platforms": PLATFORMS,
+        "platforms": platforms_for(load_settings()),
         "caption_styles": CAPTION_STYLES,
         "title_styles": TITLE_STYLES,
         "font_metrics": _font_metrics(),
@@ -205,6 +207,11 @@ async def put_settings(request: Request):
     for key in ("promo_intro_text", "promo_outro_text"):
         if key in data:
             data[key] = str(data[key] or "").strip()[:60]
+    if "vertical_max_seconds" in data:
+        try:
+            data["vertical_max_seconds"] = int(min(180, max(15, float(data["vertical_max_seconds"]))))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Durée invalide") from None
     for key in ("promo_intro", "promo_outro"):
         if key in data:
             data[key] = bool(data[key])
@@ -331,7 +338,7 @@ def subtitles_srt(pid: str, platform: str = "youtube"):
     p = _load_or_404(pid)
     if not p.get("transcript") or not p.get("source") or platform not in PLATFORMS:
         raise HTTPException(404, "Pas encore de sous-titres : génère-les d'abord.")
-    start, end = render.clip_bounds(p["edit"], p["source"], platform)
+    start, end = render.clip_bounds(p["edit"], p["source"], platform, load_settings())
     srt = captions.build_srt(p["transcript"], start, end)
     lang = p["transcript"].get("language", "en")
     name = f"{_safe_name(p.get('title') or 'clip')}_{platform}.{lang}.srt"
@@ -530,6 +537,10 @@ def open_folder(pid: str, request: Request):
     _load_or_404(pid)
     folder = projects.project_dir(pid) / "exports"
     folder.mkdir(exist_ok=True)
+    return _open_in_explorer(folder)
+
+
+def _open_in_explorer(folder: Path) -> dict:
     import subprocess
     import sys
 
@@ -565,6 +576,129 @@ def get_export(pid: str, platform: str, download: int = 0):
     if download:
         return FileResponse(path, media_type="video/mp4", filename=name)
     return FileResponse(path, media_type="video/mp4")
+
+
+# ---------------------------------------------------------------------------
+# Compilations YouTube (15-25 min, 30 min maximum)
+# ---------------------------------------------------------------------------
+
+def _compil_or_404(cid: str) -> dict:
+    try:
+        return compilations.load(cid)
+    except compilations.CompilationNotFound:
+        raise HTTPException(404, "Compilation introuvable") from None
+
+
+@app.get("/api/compilations")
+def list_compilations():
+    settings = load_settings()
+    out = []
+    for c in compilations.list_all():
+        d = compilations.describe(c, settings)
+        out.append({k: d[k] for k in ("id", "title", "created", "total", "duration_status", "export")}
+                   | {"count": len(c["items"]), "first": c["items"][0] if c["items"] else None})
+    return out
+
+
+@app.post("/api/compilations")
+async def create_compilation(request: Request):
+    data = await request.json() if (await request.body()) else {}
+    c = compilations.create(str((data or {}).get("title") or "")[:100])
+    return compilations.describe(c)
+
+
+@app.get("/api/compilations/{cid}")
+def get_compilation(cid: str):
+    c = _compil_or_404(cid)
+    d = compilations.describe(c)
+    d["jobs"] = manager.list(f"compil:{cid}")
+    return d
+
+
+@app.put("/api/compilations/{cid}")
+async def put_compilation(cid: str, request: Request):
+    data = await request.json()
+    _compil_or_404(cid)
+
+    def apply(c: dict) -> None:
+        if isinstance(data.get("title"), str) and data["title"].strip():
+            c["title"] = data["title"].strip()[:100]
+        if isinstance(data.get("items"), list):
+            items = []
+            for pid in data["items"]:
+                if isinstance(pid, str) and projects.ID_RE.match(pid) and pid not in items:
+                    if (projects.project_dir(pid) / "projet.json").exists():
+                        items.append(pid)
+            c["items"] = items[:200]
+        for key in ("intro", "end_card", "auto_captions"):
+            if key in data:
+                c[key] = bool(data[key])
+        c["changed"] = time.time()  # pour signaler une vidéo qui n'est plus à jour
+
+    c = compilations.mutate(cid, apply)
+    return compilations.describe(c)
+
+
+@app.delete("/api/compilations/{cid}")
+def delete_compilation(cid: str):
+    _compil_or_404(cid)
+    for job in manager.active_for(f"compil:{cid}"):
+        manager.cancel(job.id)
+    compilations.delete(cid)
+    return {"ok": True}
+
+
+@app.post("/api/compilations/{cid}/autofill")
+def autofill_compilation(cid: str):
+    _compil_or_404(cid)
+    return compilations.describe(compilations.autofill(cid))
+
+
+@app.post("/api/compilations/{cid}/render")
+def render_compilation(cid: str):
+    c = _compil_or_404(cid)
+    d = compilations.describe(c)
+    if not d["items_info"]:
+        raise HTTPException(400, "Ajoute au moins un clip à la compilation.")
+    if d["total"] > d["max"] + 0.5:
+        raise HTTPException(400, "La compilation dépasse 30 minutes : retire quelques clips.")
+    for job in manager.active_for(f"compil:{cid}"):
+        manager.cancel(job.id)
+    return compilations.start_render(cid).to_dict()
+
+
+@app.api_route("/api/compilations/{cid}/video", methods=["GET", "HEAD"])
+def compilation_video(cid: str, download: int = 0):
+    c = _compil_or_404(cid)
+    exp = c.get("export") or {}
+    path = compilations.compil_dir(cid) / "compilation.mp4"
+    if exp.get("status") != "fini" or not path.exists():
+        raise HTTPException(404, "Vidéo pas encore créée")
+    if download:
+        return FileResponse(path, media_type="video/mp4", filename=f"{_safe_name(c['title'])}_youtube.mp4")
+    return FileResponse(path, media_type="video/mp4")
+
+
+@app.get("/api/compilations/{cid}/texts")
+def compilation_texts(cid: str, lang: str = "auto"):
+    c = _compil_or_404(cid)
+    plist = []
+    for pid in c["items"]:
+        try:
+            plist.append(projects.load(pid))
+        except projects.ProjectNotFound:
+            continue
+    chapters = (c.get("export") or {}).get("chapters") or []
+    return social.compilation_texts(c, plist, chapters, lang if lang in ("fr", "en") else None,
+                                    load_settings().get("promo_email", ""))
+
+
+@app.post("/api/compilations/{cid}/open-folder")
+def open_compilation_folder(cid: str, request: Request):
+    if not _is_local(request):
+        raise HTTPException(403, "Disponible seulement sur le PC.")
+    _compil_or_404(cid)
+    return _open_in_explorer(compilations.compil_dir(cid))
 
 
 # ---------------------------------------------------------------------------

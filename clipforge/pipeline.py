@@ -183,7 +183,7 @@ def _start_one_render(pid: str, platform: str) -> Job:
             projects.project_dir(pid), project, platform, settings,
             on_progress=prog, cancel_check=lambda: job.cancel_requested,
         )
-        start, end = render.clip_bounds(project["edit"], project["source"], platform)
+        start, end = render.clip_bounds(project["edit"], project["source"], platform, settings)
         try:
             real_duration = probe(out)["duration"]  # inclut l'intro / la fin éventuelle
         except Exception:

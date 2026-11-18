@@ -420,3 +420,122 @@ def generate_bios(profile: dict) -> dict:
             "YouTube : ajoute les mots-clés dans YouTube Studio → Paramètres → Chaîne → Mots clés.",
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Compilations YouTube (15-25 min)
+# ---------------------------------------------------------------------------
+
+def _ts(t: float, long: bool) -> str:
+    t = int(round(t))
+    h, rem = divmod(t, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if long else f"{m:02d}:{s:02d}"
+
+
+def youtube_chapters(chapters: list[dict], total: float) -> list[str]:
+    """Lignes de chapitres valides pour YouTube : 1er à 00:00, au moins 3, chacun ≥ 10 s.
+
+    L'intro et l'écran de fin (trop courts) sont fusionnés avec le clip voisin.
+    """
+    clips = [c for c in chapters if c.get("project")]
+    if not clips:
+        return []
+    marks = [{"t": 0.0, "label": clips[0]["label"]}] + [{"t": c["t"], "label": c["label"]} for c in clips[1:]]
+    merged: list[dict] = []
+    for i, m in enumerate(marks):
+        nxt = marks[i + 1]["t"] if i + 1 < len(marks) else total
+        if merged and nxt - m["t"] < 10:
+            continue  # trop court : reste dans le chapitre précédent
+        if merged and m["t"] - merged[-1]["t"] < 10:
+            continue
+        merged.append(m)
+    if len(merged) < 3:
+        return []
+    long = total >= 3600
+    return [f"{_ts(m['t'], long)} {m['label']}" for m in merged]
+
+
+def compilation_texts(compil: dict, plist: list[dict], chapters: list[dict], lang: str | None,
+                      email: str = "") -> dict:
+    """Titres proposés, description (chapitres + crédits) et tags pour une compilation YouTube."""
+    langs = Counter(content_language(p) for p in plist)
+    lang = lang if lang in ("fr", "en") else (langs.most_common(1)[0][0] if langs else "en")
+    channels = _uniq([(p.get("origin") or {}).get("channel") or "" for p in plist])
+    channels = [c for c in channels if c]
+    games = _uniq([g for g in ((p.get("origin") or {}).get("game") for p in plist) if g])
+    by_id = {p["id"]: p for p in plist}
+    top = _join(channels, lang, 3)
+    total = max([c["t"] for c in chapters] + [0]) + 10
+
+    labelled = []
+    for i, ch in enumerate(chapters):
+        p = by_id.get(ch.get("project"))
+        label = ch.get("title") or ""
+        if p is not None:
+            channel = (p.get("origin") or {}).get("channel") or ""
+            if is_junk_title(label):
+                label = f"{channel} moment" if lang == "en" else f"Moment de {channel}"
+                label = label if channel else f"Clip {i}"
+            elif channel and channel.lower() not in label.lower():
+                label = f"{label} ({channel})"
+        labelled.append({**ch, "label": label})
+    chapter_lines = youtube_chapters(labelled, (compil.get("export") or {}).get("duration") or total)
+
+    title = compil.get("title") or "Best of Twitch"
+    if lang == "en":
+        titles = [title, f"Best Twitch Clips 😂 ft. {top}" if top else "Best Twitch Clips of the Week 😂",
+                  f"Twitch Moments That Went Too Far 💀 ({top})" if top else "Twitch Moments That Went Too Far 💀"]
+        intro = (f"The best Twitch moments from {top}! 😂" if top else "The best Twitch moments of the week! 😂")
+        sub = "🔔 Subscribe and turn on notifications so you never miss a video."
+        chap_head, credit_head = "⏱️ Chapters", "🎥 Streamers in this video (go support them!)"
+        tags = [f"{c} clips" for c in channels[:4]] + channels[:4] + games[:3] + [
+            "twitch clips", "twitch compilation", "best of twitch", "funny twitch moments", "twitch highlights"]
+        hashtags = ["#twitchclips", "#bestof"]
+    else:
+        titles = [title, f"BEST OF TWITCH 😂 {top}" if top else "BEST OF TWITCH de la semaine 😂",
+                  f"Les meilleurs moments de {top} 💀" if top else "Les pires moments de Twitch 💀"]
+        intro = (f"Les meilleurs moments Twitch de {top} ! 😂" if top else "Les meilleurs moments Twitch de la semaine ! 😂")
+        sub = "🔔 Abonne-toi et active la cloche pour ne rater aucune vidéo."
+        chap_head, credit_head = "⏱️ Chapitres", "🎥 Les streamers de la vidéo (allez les soutenir !)"
+        tags = [f"{c} clips" for c in channels[:4]] + channels[:4] + games[:3] + [
+            "twitch fr", "best of twitch", "compilation twitch", "moments drôles twitch", "clips twitch"]
+        hashtags = ["#twitchfr", "#bestof"]
+    if channels:
+        hashtags.append(slug_tag(channels[0]))
+    lines = [intro, ""]
+    if email:
+        lines.append(SEND_CLIPS[lang].format(e=email))
+    lines += [sub, ""]
+    if chapter_lines:
+        lines += [chap_head, *chapter_lines, ""]
+    if channels:
+        lines += [credit_head]
+        for p_ch in channels:
+            login = re.sub(r"[^a-z0-9_]", "", p_ch.lower())
+            lines.append(f"• {p_ch} : twitch.tv/{login}" if lang == "fr" else f"• {p_ch}: twitch.tv/{login}")
+        lines.append("")
+    lines.append(" ".join(t for t in hashtags if t))
+    out_tags, total_len = [], 0
+    for t in _uniq(tags):
+        if total_len + len(t) + 1 > 480:
+            break
+        out_tags.append(t)
+        total_len += len(t) + 1
+    return {
+        "lang": lang,
+        "titles": [t[:100] for t in _uniq(titles)],
+        "text": "\n".join(lines),
+        "tags": out_tags,
+        "chapters": chapter_lines,
+        "tip": "Les chapitres apparaissent sur YouTube si la description contient au moins 3 horodatages "
+               "(le premier à 00:00, chacun d'au moins 10 s). Ajoute les « tags » dans YouTube Studio.",
+    }
+
+
+def compilation_txt(texts: dict) -> str:
+    return "\n".join([
+        "TITRES PROPOSÉS :", *[f"- {t}" for t in texts["titles"]], "",
+        "DESCRIPTION :", texts["text"], "",
+        "TAGS :", ", ".join(texts["tags"]),
+    ]) + "\n"

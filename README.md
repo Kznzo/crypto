@@ -34,10 +34,12 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 
 | Format | Taille | Durée max |
 |---|---|---|
-| TikTok | 1080 × 1920 | 10 min |
-| Instagram Reels | 1080 × 1920 | 3 min (coupé automatiquement) |
-| YouTube Shorts | 1080 × 1920 | 3 min (coupé automatiquement) |
-| YouTube | 1920 × 1080 | illimitée |
+| TikTok | 1080 × 1920 | 1 min 01, fin comprise (réglable) |
+| Instagram Reels | 1080 × 1920 | 1 min 01, fin comprise (réglable) |
+| YouTube Shorts | 1080 × 1920 | 1 min 01, fin comprise (réglable) |
+| YouTube | 1920 × 1080 | 30 min (voir les compilations) |
+
+Si un clip est plus long, l'export est coupé automatiquement ; l'éditeur prévient à l'avance.
 
 **Textes pour publier** (onglet Exporter), en anglais ou en français selon le clip :
 - **TikTok / Reels** : légende avec accroche, crédit du streamer (`twitch.tv/…`), appel à s'abonner et 5 hashtags
@@ -54,6 +56,14 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 - **YouTube (16:9)** : intro de 4 s au début — « Want to be in our next video? Send your clips to *ton email* » + **Subscribe** + 🔔
 - **TikTok, Reels, Shorts** : fin de 3,6 s — « Send us your clips! *ton email* and get featured in our next videos » + **Follow** (TikTok, Reels) ou **Subscribe** (Shorts) + 🔔
 - L'email se règle dans **Réglages → Intro & fin de vidéo** (avec un aperçu) ; on peut couper l'intro ou la fin pour un clip précis dans l'onglet **Options**. L'email est aussi ajouté aux descriptions proposées.
+
+**Compilations YouTube (15 à 25 min, 30 min maximum)** — bouton « Compilations » en haut :
+- choisis tes clips (ou « Remplir automatiquement » jusqu'à ~20 min), range-les dans l'ordre voulu ;
+- une jauge indique si la vidéo est trop courte, idéale (15–25 min), en format best-of (25–30 min) ou trop longue (bloquée au-delà de 30 min) ;
+- l'appli monte chaque clip en 16:9 avec ses sous-titres (générés s'il en manque), ajoute l'intro au début et un **écran de fin de 8 s** (« Thanks for watching », la place pour les écrans de fin YouTube) ;
+- elle prépare **3 idées de titres**, la **description avec les chapitres** (horodatages valides pour YouTube), les **crédits de chaque streamer** et les **tags** ;
+- les clips déjà montés sont réutilisés : refaire la vidéo après une petite modification est rapide.
+Depuis un clip : onglet Exporter → « Ajouter à une compilation ».
 
 **Mode 100 % automatique** : coche-le sur l'accueil, colle un lien… et récupère directement les vidéos dans tous les formats choisis.
 
@@ -154,6 +164,7 @@ clipforge/
   overlays.py     rendu des textes (titre, sous-titres, pseudo) en images transparentes
   render.py       graphe de filtres FFmpeg et encodage par plateforme
   promo.py        intro YouTube / fin TikTok-Reels-Shorts animées (Pillow) avec bruitages
+  compilations.py compilations YouTube : liste de clips, rendu par morceaux, assemblage, chapitres
   static/         interface (HTML/CSS/JS sans dépendance, tactile)
   assets/         polices (licence OFL) et modèle de détection de visage (licence MIT)
 ```

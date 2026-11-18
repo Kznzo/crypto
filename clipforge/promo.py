@@ -230,17 +230,23 @@ def _layout(kind: str, platform: str, size: tuple[int, int], email: str, headlin
     }
 
 
-def _timeline(kind: str) -> dict:
+def _timeline(kind: str, duration: float | None = None) -> dict:
+    """Moments clés de l'animation ; « duration » permet de prolonger (écran de fin YouTube)."""
     if kind == "intro":
-        return {"click": 2.25, "bell": 3.0, "dur": DURATION["intro"]}
-    return {"click": 1.75, "bell": 2.45, "dur": DURATION["outro"]}
+        tl = {"click": 2.25, "bell": 3.0, "dur": DURATION["intro"]}
+    else:
+        tl = {"click": 1.75, "bell": 2.45, "dur": DURATION["outro"]}
+    if duration and duration > tl["dur"]:
+        tl["dur"] = float(duration)
+    return tl
 
 
-def render_frames(kind: str, platform: str, size: tuple[int, int], bg: Image.Image, email: str, headline: str):
+def render_frames(kind: str, platform: str, size: tuple[int, int], bg: Image.Image, email: str, headline: str,
+                  duration: float | None = None):
     """Génère les images (RGB) de la séquence, une par une."""
     W, H = size
     L = _layout(kind, platform, size, email, headline)
-    tl = _timeline(kind)
+    tl = _timeline(kind, duration)
     n = int(round(tl["dur"] * CARD_FPS))
     order = [k for k in L["layers"] if k.startswith("head")] + [k for k in ("send", "email", "sub") if k in L["layers"]]
     btn_w = L["btn"].width
@@ -314,9 +320,9 @@ def render_frames(kind: str, platform: str, size: tuple[int, int], bg: Image.Ima
         yield frame.convert("RGB")
 
 
-def write_audio(path: Path, kind: str, sr: int = 48000) -> None:
+def write_audio(path: Path, kind: str, sr: int = 48000, duration: float | None = None) -> None:
     """Bruitages : « whoosh » d'entrée, clic sur le bouton, « ding » de la cloche."""
-    tl = _timeline(kind)
+    tl = _timeline(kind, duration)
     n = int(tl["dur"] * sr)
     out = np.zeros(n, dtype=np.float32)
     rng = np.random.default_rng(7)
@@ -362,7 +368,7 @@ def frame_from_video(src: str | Path, t: float) -> Image.Image | None:
 
 
 def build_card(out_dir: Path, kind: str, platform: str, email: str, headline: str | None,
-               frame: Image.Image | None) -> tuple[Path, Path, float]:
+               frame: Image.Image | None, duration: float | None = None) -> tuple[Path, Path, float]:
     """Crée la vidéo (sans son) et le fichier son de la séquence. Renvoie (vidéo, son, durée)."""
     p = PLATFORMS[platform]
     size = (p["width"], p["height"])
@@ -380,7 +386,7 @@ def build_card(out_dir: Path, kind: str, platform: str, email: str, headline: st
     )
     assert proc.stdin is not None
     try:
-        for img in render_frames(kind, platform, size, bg, email, headline):
+        for img in render_frames(kind, platform, size, bg, email, headline, duration):
             proc.stdin.write(img.tobytes())
     finally:
         proc.stdin.close()
@@ -388,8 +394,8 @@ def build_card(out_dir: Path, kind: str, platform: str, email: str, headline: st
         proc.wait()
     if proc.returncode != 0:
         raise RuntimeError(f"Impossible de créer la séquence {kind} : {err[-300:]}")
-    write_audio(audio, kind)
-    return video, audio, _timeline(kind)["dur"]
+    write_audio(audio, kind, duration=duration)
+    return video, audio, _timeline(kind, duration)["dur"]
 
 
 def preview(cache_dir: Path, kind: str, platform: str, email: str, headline: str | None,

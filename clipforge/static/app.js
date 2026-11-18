@@ -49,7 +49,10 @@ function fmtTime(sec, precise = true) {
 }
 function fmtDur(sec) {
   if (sec == null) return '';
-  return sec < 60 ? `${Math.round(sec)} s` : `${Math.floor(sec / 60)} min ${String(Math.round(sec % 60)).padStart(2, '0')}`;
+  const r = Math.round(sec);
+  if (r < 60) return `${r} s`;
+  if (r >= 3600) return `${Math.floor(r / 3600)} h ${String(Math.floor((r % 3600) / 60)).padStart(2, '0')}`;
+  return `${Math.floor(r / 60)} min ${String(r % 60).padStart(2, '0')}`;
 }
 function parseTime(str) {
   if (str == null) return null;
@@ -118,6 +121,8 @@ function route() {
   if (m) view = EditorView(m[1]);
   else if (hash.startsWith('#/reglages')) view = SettingsView();
   else if (hash.startsWith('#/bios')) view = BiosView();
+  else if (hash.startsWith('#/compils')) view = CompilsView();
+  else if (hash.match(/^#\/compil\/([a-z0-9]+)/)) view = CompilView(hash.match(/^#\/compil\/([a-z0-9]+)/)[1]);
   else view = HomeView();
 }
 
@@ -171,6 +176,43 @@ function openVideoModal(url, title) {
   v.addEventListener('error', () => { bg.querySelector('#vmWait').textContent = "Impossible de créer l'aperçu."; });
   v.src = url;
   bg.addEventListener('click', (e) => { if (e.target === bg || e.target.closest('[data-close]')) { v.pause(); bg.remove(); } });
+  document.body.appendChild(bg);
+}
+
+// Durée de clip possible pour un format (la fin de 3,6 s compte dans la limite des formats verticaux).
+function clipLimit(key, edit) {
+  const p = INFO.platforms[key];
+  if (!p.max_duration) return null;
+  return p.max_duration - (p.vertical && promoOn(edit, 'outro') ? 3.6 : 0);
+}
+
+// Ajouter un clip à une compilation YouTube (existante ou nouvelle)
+async function pickCompilation(pid) {
+  let list = [];
+  try { list = await api('/api/compilations'); } catch (err) { toast(err.message, 'err'); return; }
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal"><div class="row" style="justify-content:space-between"><h2>Ajouter à une compilation</h2>
+      <button class="btn-ghost icon-btn" data-close aria-label="Fermer">${ICON.x}</button></div>
+    <div class="stack" style="gap:8px">${list.map((c) => `<button data-cid="${c.id}" style="justify-content:space-between"><span>${esc(c.title)}</span><span class="muted small">${c.count} clip(s) · ${fmtDur(c.total)}</span></button>`).join('')}
+      <button class="btn-primary" data-new>+ Nouvelle compilation</button></div></div>`;
+  const add = async (cid) => {
+    try {
+      const c = await api(`/api/compilations/${cid}`);
+      if (c.items.includes(pid)) { toast('Ce clip est déjà dans cette compilation.'); return; }
+      const res = await api(`/api/compilations/${cid}`, { method: 'PUT', json: { items: [...c.items, pid] } });
+      bg.remove();
+      toast(`Ajouté à « ${res.title} » (${fmtDur(res.total)})`, 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  };
+  bg.addEventListener('click', async (e) => {
+    if (e.target === bg || e.target.closest('[data-close]')) { bg.remove(); return; }
+    const b = e.target.closest('[data-cid]');
+    if (b) add(b.dataset.cid);
+    if (e.target.closest('[data-new]')) {
+      try { const c = await api('/api/compilations', { method: 'POST', json: {} }); add(c.id); } catch (err) { toast(err.message, 'err'); }
+    }
+  });
   document.body.appendChild(bg);
 }
 
@@ -925,8 +967,9 @@ function EditorView(id) {
     const len = e - s;
     $('#durLbl').textContent = fmtDur(len);
     $('#durInfo').innerHTML = Object.entries(INFO.platforms).map(([k, p]) => {
-      const ok = !p.max_duration || len <= p.max_duration;
-      return `<span class="badge ${ok ? 'ok' : 'err'}" title="Conseillé : ${esc(p.recommended)}"><span class="dot ${k}"></span>${esc(p.label)} ${ok ? '✓' : `: coupé à ${fmtDur(p.max_duration)}`}</span>`;
+      const lim = clipLimit(k, edit);
+      const ok = !lim || len <= lim + 0.05;
+      return `<span class="badge ${ok ? 'ok' : 'err'}" title="Conseillé : ${esc(p.recommended)}"><span class="dot ${k}"></span>${esc(p.label)} ${ok ? '✓' : `: coupé à ${fmtDur(lim)}`}</span>`;
     }).join('');
     $('#hlMarks').innerHTML = (P.highlights || []).map((h, i) => `<div class="hl" data-hlm="${i}" style="left:${pc(h.start)};width:${((h.end - h.start) / dur) * 100}%" title="Moment fort #${i + 1}"></div>`).join('');
   }
@@ -1340,8 +1383,12 @@ function EditorView(id) {
       body.innerHTML = `<div class="stack">
         <div class="exp-grid" id="expGrid">${Object.entries(INFO.platforms).map(([k, p]) => `
           <label class="exp-option ${expFormats.includes(k) ? 'on' : ''}"><input type="checkbox" value="${k}" ${expFormats.includes(k) ? 'checked' : ''}>
-            <span class="dot ${k}"></span><span class="info"><b>${esc(p.label)}</b><span>${p.width}×${p.height}${p.max_duration && len > p.max_duration ? ` · coupé à ${fmtDur(p.max_duration)}` : ''}${p.vertical ? (promoOn(edit, 'outro') ? ' · + fin 3,6 s' : '') : (promoOn(edit, 'intro') ? ' · + intro 4 s' : '')}</span></span></label>`).join('')}</div>
+            <span class="dot ${k}"></span><span class="info"><b>${esc(p.label)}</b><span>${p.width}×${p.height}${clipLimit(k, edit) && len > clipLimit(k, edit) + 0.05 ? ` · clip coupé à ${fmtDur(clipLimit(k, edit))}` : ''}${p.vertical ? (promoOn(edit, 'outro') ? ' · + fin 3,6 s' : '') : (promoOn(edit, 'intro') ? ' · + intro 4 s' : '')}</span></span></label>`).join('')}</div>
         <button class="btn-primary btn-big" id="renderBtn">${ICON.film} Créer les vidéos</button>
+        <div class="auto-reason row" style="justify-content:space-between;margin:0">
+          <span>📺 Pour YouTube, rassemble tes clips dans une <b>compilation de 15 à 25 min</b>.</span>
+          <button class="btn-sm" id="toCompil">+ Ajouter à une compilation</button>
+        </div>
         <div class="row" style="justify-content:space-between">
           <p class="muted small" style="margin:0;flex:1 1 240px">${INFO.gpu_encoder ? `Accélération carte graphique active (${esc(INFO.gpu_encoder)}).` : 'Encodage par le processeur.'} Les vidéos sont aussi rangées dans le dossier du projet sur le PC.</p>
           ${INFO.is_local ? '<button class="btn-sm" id="openFolder">📂 Ouvrir le dossier</button>' : ''}
@@ -1363,6 +1410,7 @@ function EditorView(id) {
         store.set('formats', expFormats);
         e.target.closest('.exp-option').classList.toggle('on', e.target.checked);
       });
+      $('#toCompil').addEventListener('click', () => pickCompilation(id));
       const of = $('#openFolder');
       if (of) of.addEventListener('click', () => api(`/api/projects/${id}/open-folder`, { method: 'POST' }).catch((err) => toast(err.message, 'err')));
       $('#renderBtn').addEventListener('click', async () => {
@@ -1541,6 +1589,218 @@ function EditorView(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Compilations YouTube (15-25 min, 30 min maximum)
+// ---------------------------------------------------------------------------
+const COMPIL_MSG = {
+  vide: ['', 'Ajoute des clips pour commencer.'],
+  court: ['warn', 'Encore un peu court : vise 15 à 25 min pour YouTube.'],
+  ideal: ['ok', 'Parfait pour YouTube (15 à 25 min).'],
+  long: ['warn', 'Format best-of (25 à 30 min) : c’est le maximum.'],
+  trop_long: ['err', 'Trop long : 30 min maximum, retire des clips.'],
+};
+
+function gaugeHtml(c) {
+  const max = c.max || 1800;
+  const pc = (v) => `${Math.min(100, (v / max) * 100)}%`;
+  const [cls, msg] = COMPIL_MSG[c.duration_status] || ['', ''];
+  return `<div class="gauge"><div class="zone ideal" style="left:${pc(c.target[0])};width:calc(${pc(c.target[1])} - ${pc(c.target[0])})"></div>
+      <div class="zone long" style="left:${pc(c.target[1])};right:0"></div>
+      <div class="fill ${cls}" style="width:${pc(c.total)}"></div>
+      <span class="tick" style="left:${pc(c.target[0])}">15 min</span><span class="tick" style="left:${pc(c.target[1])}">25 min</span><span class="tick end">30 min</span></div>
+    <div class="row" style="justify-content:space-between;margin-top:22px"><b style="font-size:1.4rem">${fmtDur(c.total)}</b>
+      <span class="badge ${cls}">${esc(msg)}</span></div>`;
+}
+
+function CompilsView() {
+  const app = $('#app');
+  app.innerHTML = '<div class="empty">Chargement…</div>';
+  (async () => {
+    const list = await api('/api/compilations');
+    app.innerHTML = `<div class="editor-head"><a class="btn btn-ghost icon-btn" href="#/">${ICON.back}</a><h1 style="margin:0">Compilations YouTube</h1>
+        <button class="btn-primary" id="newCompil" style="margin-left:auto">+ Nouvelle compilation</button></div>
+      <p class="muted" style="margin-top:-6px">Assemble tes clips Twitch en une vidéo YouTube 16:9 de 15 à 25 min (30 min maximum) : intro, écran de fin et description avec chapitres faits automatiquement.</p>
+      <div class="projects">${list.length ? list.map((c) => `
+        <div class="project-card" data-id="${c.id}">
+          <div class="thumb" style="background-image:url('${c.first ? `/api/projects/${c.first}/thumb` : ''}')"><span class="dur">${fmtDur(c.total)}</span></div>
+          <div class="body"><div class="title">${esc(c.title)}</div>
+            <div class="muted small">${c.count} clip(s)</div>
+            <div class="foot"><span class="badge ${(COMPIL_MSG[c.duration_status] || [''])[0]}">${esc((COMPIL_MSG[c.duration_status] || ['', ''])[1])}</span>
+              ${c.export && c.export.status === 'fini' ? '<span class="badge ok">Vidéo prête</span>' : ''}</div></div></div>`).join('')
+        : '<div class="empty card" style="grid-column:1/-1">Pas encore de compilation. Importe des clips puis crée ta première vidéo YouTube !</div>'}</div>`;
+    $('#newCompil').addEventListener('click', async () => {
+      try { const c = await api('/api/compilations', { method: 'POST', json: {} }); location.hash = `#/compil/${c.id}`; } catch (err) { toast(err.message, 'err'); }
+    });
+    $('.projects').addEventListener('click', (e) => { const card = e.target.closest('.project-card'); if (card) location.hash = `#/compil/${card.dataset.id}`; });
+  })().catch((err) => { app.innerHTML = `<div class="card empty">${esc(err.message)}</div>`; });
+  return { destroy() { } };
+}
+
+function CompilView(cid) {
+  const app = $('#app');
+  let C = null;
+  let library = [];
+  let picked = new Set();
+  let timer = null;
+  let destroyed = false;
+  let texts = null;
+  let textLang = 'auto';
+  let lastStatus = null;
+  app.innerHTML = '<div class="empty">Chargement…</div>';
+
+  const activeJob = () => (C.jobs || []).find((j) => j.status === 'en_cours' || j.status === 'attente');
+
+  async function load(first) {
+    try {
+      C = await api(`/api/compilations/${cid}`);
+      if (first) library = await api('/api/projects');
+    } catch (err) { app.innerHTML = `<div class="card empty">${esc(err.message)}<br><a class="btn" href="#/compils">Retour</a></div>`; return; }
+    if (destroyed) return;
+    const status = C.export && C.export.status;
+    if (first || status !== lastStatus) { render(); if (status === 'fini' && lastStatus === 'en_cours') toast('Compilation prête ✓', 'ok'); }
+    else updateJob();
+    lastStatus = status;
+    clearTimeout(timer);
+    timer = setTimeout(() => load(false), activeJob() ? 1500 : 6000);
+  }
+
+  async function update(patch) {
+    try { C = { ...C, ...(await api(`/api/compilations/${cid}`, { method: 'PUT', json: patch })), jobs: C.jobs }; render(); }
+    catch (err) { toast(err.message, 'err'); }
+  }
+
+  function updateJob() {
+    const box = $('#cjob');
+    if (!box) return;
+    const j = activeJob();
+    box.innerHTML = j ? `<div class="job-line"><div class="row"><b class="small">${esc(j.message)}</b><button class="btn-sm btn-ghost" id="cCancel">Annuler</button></div>
+      <div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div></div>` : '';
+    const cancel = $('#cCancel');
+    if (cancel) cancel.onclick = () => api(`/api/jobs/${j.id}/cancel`, { method: 'POST' }).then(() => load(false));
+    const btn = $('#cRender');
+    if (btn) btn.disabled = !!j;
+  }
+
+  function render() {
+    const items = C.items_info || [];
+    const inList = new Set(C.items);
+    const avail = library.filter((p) => p.status === 'pret' && !inList.has(p.id));
+    const exp = C.export || {};
+    app.innerHTML = `
+      <div class="editor-head">
+        <a class="btn btn-ghost icon-btn" href="#/compils" aria-label="Retour">${ICON.back}</a>
+        <input class="title-input" id="cTitle" value="${esc(C.title)}" aria-label="Titre de la compilation">
+        <button class="btn-ghost btn-danger icon-btn" id="cDel" title="Supprimer">${ICON.trash}</button>
+      </div>
+      <div class="compil-grid">
+        <div class="stack">
+          <div class="panel">${gaugeHtml(C)}
+            <p class="muted small" style="margin:8px 0 0">Durée totale avec l'intro (4 s) et l'écran de fin (8 s). Chaque clip garde sa découpe, ses sous-titres et son titre.</p></div>
+          <div class="panel">
+            <div class="panel-title"><h3>🎬 Clips de la vidéo (${items.length})</h3></div>
+            ${items.length ? `<div class="clist">${items.map((it, i) => `
+              <div class="citem ${it.missing ? 'missing' : ''}">
+                <span class="cnum">${i + 1}</span>
+                <span class="cthumb" style="background-image:url('${it.has_thumb ? `/api/projects/${it.id}/thumb` : ''}')"></span>
+                <div class="cmeta"><b>${esc(it.missing ? 'Clip supprimé' : it.title)}</b>
+                  <span class="muted small">${esc(it.channel || '')}${it.duration ? ` · ${fmtDur(it.duration)}` : ''}${it.has_captions ? ' · sous-titres ✓' : ''}</span></div>
+                <div class="cbtns">
+                  <button class="btn-sm icon-btn" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Monter">▲</button>
+                  <button class="btn-sm icon-btn" data-down="${i}" ${i === items.length - 1 ? 'disabled' : ''} aria-label="Descendre">▼</button>
+                  ${it.missing ? '' : `<a class="btn btn-sm icon-btn" href="#/p/${it.id}" title="Modifier le clip">✎</a>`}
+                  <button class="btn-sm icon-btn btn-danger" data-rm="${i}" aria-label="Retirer">✕</button>
+                </div></div>`).join('')}</div>` : '<p class="muted">Ajoute des clips depuis la liste ci-dessous, ou utilise le remplissage automatique.</p>'}
+          </div>
+          <div class="panel">
+            <div class="panel-title" style="flex-wrap:wrap"><h3>➕ Ajouter des clips</h3>
+              <div class="row"><button class="btn-sm" id="cAuto">${ICON.magic} Remplir automatiquement (~20 min)</button>
+              <button class="btn-sm btn-primary" id="cAdd" disabled>Ajouter la sélection</button></div></div>
+            ${avail.length ? `<div class="clip-list" id="cLib">${avail.map((p) => `
+              <div class="clip-item ${picked.has(p.id) ? 'on' : ''}" data-id="${p.id}">
+                <span class="check">${ICON.check}</span>${p.duration ? `<span class="dur">${fmtDur(p.duration)}</span>` : ''}
+                <img loading="lazy" src="${p.has_thumb ? `/api/projects/${p.id}/thumb` : ''}" alt="" onerror="this.style.visibility='hidden'">
+                <div class="meta"><b title="${esc(p.title)}">${esc(p.title)}</b><span class="muted">${esc(p.channel || '')}</span></div></div>`).join('')}</div>`
+              : '<p class="muted">Tous tes clips prêts sont déjà dans la vidéo. Importe-en d\'autres depuis l\'accueil.</p>'}
+          </div>
+        </div>
+        <div class="stack">
+          <div class="panel stack">
+            <h3 style="margin:0">Options</h3>
+            ${['intro', 'end_card', 'auto_captions'].map((k) => `<label class="switch"><span>${{ intro: '<b>Intro (4 s)</b><br><span class="muted small">« Send your clips to… » + Subscribe + cloche</span>', end_card: '<b>Écran de fin (8 s)</b><br><span class="muted small">« Thanks for watching » : place pour les écrans de fin YouTube</span>', auto_captions: '<b>Sous-titres manquants</b><br><span class="muted small">Générés automatiquement avant le montage</span>' }[k]}</span>
+              <input type="checkbox" data-opt="${k}" ${C[k] ? 'checked' : ''}><span class="knob"></span></label>`).join('')}
+            <button class="btn-primary btn-big" id="cRender" ${items.length && C.duration_status !== 'trop_long' ? '' : 'disabled'}>${ICON.film} Créer la vidéo YouTube</button>
+            <div id="cjob"></div>
+            ${exp.status === 'erreur' ? `<div class="err-box">${esc(exp.error || 'Erreur')}</div>` : ''}
+            <p class="muted small" style="margin:0">Les clips déjà montés et inchangés sont réutilisés : refaire la vidéo après une petite modification est rapide.</p>
+          </div>
+          ${exp.status === 'fini' ? `<div class="panel stack">
+            <div class="result-head"><h3 style="margin:0">✅ Vidéo prête</h3><span class="muted small">1920×1080 · ${fmtDur(exp.duration)} · ${fmtSize(exp.size)}</span></div>
+            ${C.outdated ? '<div class="err-box" style="color:var(--warn);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08)">Tu as modifié la compilation depuis : clique sur « Créer la vidéo YouTube » pour la mettre à jour.</div>' : ''}
+            <video controls playsinline preload="metadata" src="/api/compilations/${cid}/video?v=${Math.round(exp.finished || 0)}" style="width:100%;border-radius:10px;background:#000"></video>
+            <div class="row"><a class="btn btn-primary" href="/api/compilations/${cid}/video?download=1&v=${Math.round(exp.finished || 0)}" download>${ICON.download} Télécharger</a>
+              ${INFO.is_local ? '<button class="btn-sm" id="cFolder">📂 Ouvrir le dossier</button>' : ''}</div>
+          </div>` : ''}
+          <div class="panel stack" id="cTexts"><span class="muted small">Chargement des textes…</span></div>
+        </div>
+      </div>`;
+
+    $('#cTitle').addEventListener('change', (e) => update({ title: e.target.value }));
+    $('#cDel').addEventListener('click', async () => {
+      if (!confirm('Supprimer cette compilation ? (les clips restent dans tes projets)')) return;
+      await api(`/api/compilations/${cid}`, { method: 'DELETE' }); location.hash = '#/compils';
+    });
+    const move = (i, d) => { const it = [...C.items]; [it[i], it[i + d]] = [it[i + d], it[i]]; update({ items: it }); };
+    $$('[data-up]').forEach((b) => b.addEventListener('click', () => move(+b.dataset.up, -1)));
+    $$('[data-down]').forEach((b) => b.addEventListener('click', () => move(+b.dataset.down, 1)));
+    $$('[data-rm]').forEach((b) => b.addEventListener('click', () => update({ items: C.items.filter((_, i) => i !== +b.dataset.rm) })));
+    $$('[data-opt]').forEach((b) => b.addEventListener('change', () => update({ [b.dataset.opt]: b.checked })));
+    const lib = $('#cLib');
+    const addBtn = $('#cAdd');
+    const syncAdd = () => { addBtn.disabled = !picked.size; addBtn.textContent = picked.size ? `Ajouter (${picked.size})` : 'Ajouter la sélection'; };
+    syncAdd();
+    if (lib) lib.addEventListener('click', (e) => {
+      const it = e.target.closest('.clip-item'); if (!it) return;
+      picked.has(it.dataset.id) ? picked.delete(it.dataset.id) : picked.add(it.dataset.id);
+      it.classList.toggle('on'); syncAdd();
+    });
+    addBtn.addEventListener('click', () => { const add = [...picked]; picked = new Set(); update({ items: [...C.items, ...add] }); });
+    $('#cAuto').addEventListener('click', async () => {
+      try { C = { ...C, ...(await api(`/api/compilations/${cid}/autofill`, { method: 'POST' })) }; render(); toast('Clips ajoutés ✓', 'ok'); } catch (err) { toast(err.message, 'err'); }
+    });
+    $('#cRender').addEventListener('click', async () => {
+      try { await api(`/api/compilations/${cid}/render`, { method: 'POST' }); toast('Montage de la compilation lancé !', 'ok'); load(false); } catch (err) { toast(err.message, 'err'); }
+    });
+    const folder = $('#cFolder');
+    if (folder) folder.addEventListener('click', () => api(`/api/compilations/${cid}/open-folder`, { method: 'POST' }).catch((err) => toast(err.message, 'err')));
+    updateJob();
+    loadTexts();
+  }
+
+  async function loadTexts() {
+    const box = $('#cTexts');
+    if (!box || !C.items.length) { if (box) box.innerHTML = '<span class="muted small">Les textes apparaîtront quand la vidéo aura des clips.</span>'; return; }
+    try { texts = await api(`/api/compilations/${cid}/texts?lang=${textLang}`); } catch (err) { box.innerHTML = `<div class="err-box">${esc(err.message)}</div>`; return; }
+    const exp = C.export || {};
+    box.innerHTML = `<div class="panel-title" style="flex-wrap:wrap"><h3 style="margin:0">📝 Textes pour YouTube</h3>
+        <div class="seg" id="cLang">${[['auto', 'Auto'], ['en', 'Anglais'], ['fr', 'Français']].map(([v, l]) => `<button data-v="${v}" class="${v === textLang ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <div><div class="muted small" style="margin-bottom:6px">Titres proposés (touche pour copier)</div>
+        <div class="stack" style="gap:6px">${texts.titles.map((t, i) => `<button class="btn-sm" style="justify-content:flex-start;white-space:normal;text-align:left" data-title="${i}">${esc(t)}</button>`).join('')}</div></div>
+      <label class="field">Description (avec chapitres et crédits)<textarea id="cDesc" rows="12">${esc(texts.text)}</textarea></label>
+      ${exp.status !== 'fini' ? '<p class="muted small" style="margin:0">Les chapitres (horodatages) seront ajoutés une fois la vidéo créée.</p>' : ''}
+      <label class="field">Tags (champ « Tags » de YouTube Studio)<textarea id="cTags" rows="3">${esc(texts.tags.join(', '))}</textarea></label>
+      <p class="muted small" style="margin:0">💡 ${esc(texts.tip)}</p>
+      <div class="row"><button class="btn-sm btn-primary" id="cpDesc">${ICON.copy} Copier la description</button><button class="btn-sm" id="cpTags">${ICON.copy} Copier les tags</button></div>`;
+    const copy = async (t, label) => { try { await navigator.clipboard.writeText(t); } catch { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } toast(`${label} copié ✓`, 'ok'); };
+    $$('[data-title]').forEach((b) => b.addEventListener('click', () => copy(texts.titles[+b.dataset.title], 'Titre')));
+    $('#cpDesc').addEventListener('click', () => copy($('#cDesc').value, 'Description'));
+    $('#cpTags').addEventListener('click', () => copy($('#cTags').value, 'Tags'));
+    $('#cLang').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { textLang = b.dataset.v; loadTexts(); } });
+  }
+
+  load(true);
+  return { destroy() { destroyed = true; clearTimeout(timer); } };
+}
+
+// ---------------------------------------------------------------------------
 // Bios du compte (TikTok, Instagram, YouTube)
 // ---------------------------------------------------------------------------
 function BiosView() {
@@ -1650,6 +1910,7 @@ function SettingsView() {
         </div>
         <div class="card stack">
           <h2>Export vidéo</h2>
+          <label class="field">Durée max TikTok / Reels / Shorts (fin comprise)<select id="sVmax">${opt([[30, '30 s'], [45, '45 s'], [61, '1 min 01 (conseillé)'], [90, '1 min 30'], [180, '3 min']].map(([v, l]) => [String(v), l]), String(s.vertical_max_seconds || 61))}</select></label>
           <label class="field">Qualité<select id="sQuality">${opt([['rapide', 'Rapide'], ['equilibre', 'Équilibrée (conseillé)'], ['max', 'Maximale (plus lent)']], s.quality)}</select></label>
           <label class="field">Carte graphique<select id="sGpu">${opt([['auto', 'Utiliser si disponible'], ['off', 'Ne pas utiliser']], s.gpu)}</select></label>
           <p class="muted small">${INFO.gpu_encoder ? `Encodeur détecté : ${esc(INFO.gpu_encoder)}` : 'Aucun encodeur carte graphique détecté : le processeur sera utilisé.'}</p>
@@ -1685,6 +1946,7 @@ function SettingsView() {
             promo_email: $('#sPromoEmail').value.trim(), promo_intro: $('#sPromoIntro').checked,
             promo_outro: $('#sPromoOutro').checked, promo_intro_text: $('#sPromoIntroText').value.trim(),
             promo_outro_text: $('#sPromoOutroText').value.trim(),
+            vertical_max_seconds: +$('#sVmax').value,
             whisper_model: $('#sModel').value, language: $('#sLang').value, quality: $('#sQuality').value, gpu: $('#sGpu').value,
             default_watermark: $('#sWm').value.trim(), default_caption_style: $('#sCap').value, default_title_style: $('#sTitle').value,
             twitch_cookies: $('#sCookies').value,
@@ -1692,6 +1954,7 @@ function SettingsView() {
             publish_lang: $('#sPub').value,
           },
         });
+        try { INFO = { ...INFO, ...(await api('/api/info')) }; } catch { /* ignore */ }
         if (!silent) toast('Réglages enregistrés ✓', 'ok');
         return true;
       } catch (err) { toast(err.message, 'err'); return false; }

@@ -115,8 +115,12 @@ def test_filters_and_bounds():
     assert "vstack" in ";".join(build_video_filters(edit, source, "tiktok"))
     assert "pad=1920:1080" in ";".join(build_video_filters(edit, source, "youtube"))
     # Reels : 3 min max, l'export est coupé automatiquement.
-    assert clip_bounds(edit, source, "reels") == (10, 190)
+    # TikTok / Reels / Shorts : 1 min 01 par défaut, réglable.
+    assert clip_bounds(edit, source, "reels") == (10, 71)
+    assert clip_bounds(edit, source, "tiktok", {"vertical_max_seconds": 90}) == (10, 100)
     assert clip_bounds(edit, source, "youtube") == (10, 250)
+    long_edit = {**edit, "start": 0, "end": None}
+    assert clip_bounds(long_edit, {**source, "duration": 4000}, "youtube") == (0, 1800)  # 30 min max
 
 
 def test_sanitize_edit_clamps_values():

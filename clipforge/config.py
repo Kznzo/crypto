@@ -136,6 +136,28 @@ TITLE_STYLES: dict[str, dict] = {
     "contour": {"label": "Gros texte contour", "font": "anton", "color": "#FFFFFF", "box": None, "stroke": "#000000"},
 }
 
+YOUTUBE_MAX_SECONDS = 30 * 60  # vidéos YouTube et compilations : 30 min maximum
+COMPIL_TARGET = (15 * 60, 25 * 60)  # durée idéale d'une compilation YouTube
+
+
+def platform_limits(settings: dict | None = None) -> dict[str, float]:
+    """Durée maximale de chaque export, selon les réglages (1 min 01 par défaut pour les formats verticaux)."""
+    vertical = float((settings or {}).get("vertical_max_seconds") or DEFAULT_SETTINGS["vertical_max_seconds"])
+    return {k: (vertical if p["vertical"] else YOUTUBE_MAX_SECONDS) for k, p in PLATFORMS.items()}
+
+
+def platforms_for(settings: dict | None = None) -> dict:
+    """Copie de PLATFORMS avec les durées maximales des réglages (pour l'interface)."""
+    limits = platform_limits(settings)
+    out = {}
+    for k, p in PLATFORMS.items():
+        out[k] = {**p, "max_duration": limits[k]}
+        if p["vertical"]:
+            m, s = divmod(int(limits[k]), 60)
+            out[k]["recommended"] = f"jusqu'à {m} min {s:02d}" if m else f"jusqu'à {s} s"
+    return out
+
+
 DEFAULT_SETTINGS = {
     "whisper_model": "small",
     "language": "auto",  # langue parlée par défaut dans les clips (auto = détectée)
@@ -150,6 +172,7 @@ DEFAULT_SETTINGS = {
     "publish_lang": "auto",  # langue des descriptions : auto (celle du clip), fr ou en
     "profile": {},  # infos du compte pour les bios (nom, streamers clippés, jeux…)
     # Intro YouTube / fin TikTok-Reels-Shorts (en anglais) : « envoie tes clips » + abonne-toi + cloche.
+    "vertical_max_seconds": 61,  # durée max TikTok / Reels / Shorts (fin comprise)
     "promo_email": "",
     "promo_intro": True,
     "promo_outro": True,

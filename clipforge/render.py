@@ -8,7 +8,7 @@ from typing import Callable
 from . import promo
 from .analysis import split_heights
 from .captions import build_caption_groups
-from .config import CAPTION_STYLES, PLATFORMS
+from .config import CAPTION_STYLES, PLATFORMS, platform_limits
 from .ffmpeg_utils import FFmpegError, available_hw_encoder, run_with_progress
 from .overlays import build_overlay_track
 
@@ -31,13 +31,13 @@ def _crop_px(rect: dict, src_w: int, src_h: int) -> str:
     return f"crop={w}:{h}:{x}:{y}"
 
 
-def clip_bounds(edit: dict, source: dict, platform: str) -> tuple[float, float]:
+def clip_bounds(edit: dict, source: dict, platform: str, settings: dict | None = None) -> tuple[float, float]:
     start = max(0.0, float(edit.get("start", 0)))
     end = float(edit.get("end") or source["duration"])
     end = min(end, source["duration"]) if source.get("duration") else end
     if end - start < 0.5:
         end = start + 0.5
-    max_d = PLATFORMS[platform]["max_duration"]
+    max_d = platform_limits(settings)[platform]
     if max_d and end - start > max_d:
         end = start + max_d
     return start, end
@@ -139,20 +139,32 @@ def render_export(
     settings: dict,
     on_progress: Callable[[float], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    *,
+    include_promo: bool = True,
+    output: Path | None = None,
+    fixed_fps: float | None = None,
+    allow_fallback: bool = True,
+    work_name: str | None = None,
 ) -> Path:
+    """Exporte un projet pour une plateforme.
+
+    Les options après « * » servent aux compilations : pas d'intro, fichier de sortie choisi,
+    même nombre d'images par seconde pour tous les morceaux, et pas de changement d'encodeur en cours de route.
+    """
     source = project["source"]
     edit = project["edit"]
     src_path = project_dir / source["file"]
-    start, end = clip_bounds(edit, source, platform)
+    start, end = clip_bounds(edit, source, platform, settings)
     p = PLATFORMS[platform]
+    max_d = platform_limits(settings)[platform]
     W, H = p["width"], p["height"]
-    fps = min(60.0, source.get("fps") or 30.0)
+    fps = fixed_fps or min(60.0, source.get("fps") or 30.0)
 
     # Intro (YouTube 16:9) ou fin (TikTok, Reels, Shorts) : « envoie tes clips » + abonne-toi.
-    kind = promo_kind(edit, settings, platform)
+    kind = promo_kind(edit, settings, platform) if include_promo else None
     card_dur = promo.DURATION[kind] if kind else 0.0
-    if kind and p["max_duration"] and (end - start) + card_dur > p["max_duration"]:
-        end = start + p["max_duration"] - card_dur  # la séquence compte dans la durée maximale
+    if kind and max_d and (end - start) + card_dur > max_d:
+        end = start + max_d - card_dur  # la séquence compte dans la durée maximale
     duration = end - start
     total = duration + card_dur
 
@@ -167,7 +179,7 @@ def render_export(
             uppercase=style.get("uppercase", True),
         )
 
-    work = project_dir / "tmp" / platform
+    work = project_dir / "tmp" / (work_name or platform)
     if work.exists():
         shutil.rmtree(work, ignore_errors=True)
     if on_progress:
@@ -224,10 +236,9 @@ def render_export(
         order = "[vcard][acard][vmain][amain]" if kind == "intro" else "[vmain][amain][vcard][acard]"
         filters.append(f"{order}concat=n=2:v=1:a=1[vout][aout]")
 
-    out_dir = project_dir / "exports"
-    out_dir.mkdir(exist_ok=True)
-    out_path = out_dir / f"{platform}.mp4"
-    tmp_out = out_dir / f".{platform}.en-cours.mp4"
+    out_path = output or project_dir / "exports" / f"{platform}.mp4"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_out = out_path.with_name(f".{out_path.stem}.en-cours.mp4")
 
     def build_args(enc: list[str]) -> list[str]:
         return [
@@ -243,10 +254,47 @@ def render_export(
     try:
         run_with_progress(build_args(encoder_args(settings, fps)), total, on_progress, cancel_check)
     except FFmpegError as exc:
-        if str(exc) == "Annulé" or settings.get("gpu") == "off" or not available_hw_encoder():
+        if str(exc) == "Annulé" or not allow_fallback or settings.get("gpu") == "off" or not available_hw_encoder():
             raise
         # L'encodeur de la carte graphique a échoué : on retente avec le processeur.
         run_with_progress(build_args(software_encoder_args(settings, fps)), total, on_progress, cancel_check)
     tmp_out.replace(out_path)
     shutil.rmtree(work, ignore_errors=True)
     return out_path
+
+
+def encode_card_segment(
+    card_video: Path, card_audio: Path, out: Path, settings: dict, fps: float, size: tuple[int, int],
+    cancel_check: Callable[[], bool] | None = None,
+) -> Path:
+    """Encode une intro / un écran de fin avec exactement les mêmes réglages que les clips d'une compilation."""
+    W, H = size
+    run_with_progress(
+        [
+            "-i", str(card_video), "-i", str(card_audio),
+            "-filter_complex",
+            f"[0:v]fps={fps:g},scale={W}:{H},setsar=1,format=yuv420p[v];"
+            "[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a]",
+            "-map", "[v]", "-map", "[a]", *encoder_args(settings, fps),
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest", str(out),
+        ],
+        0, None, cancel_check,
+    )
+    return out
+
+
+def concat_segments(segments: list[Path], out: Path) -> Path:
+    """Colle les morceaux bout à bout sans réencoder (ils ont tous les mêmes réglages)."""
+    lst = out.with_suffix(".txt")
+    def quote(path: Path) -> str:
+        return path.resolve().as_posix().replace("'", "'\\''")
+
+    lst.write_text("".join(f"file '{quote(s)}'\n" for s in segments), "utf-8")
+    tmp = out.with_name(f".{out.stem}.en-cours.mp4")
+    run_with_progress(
+        ["-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", "-movflags", "+faststart", str(tmp)],
+        0, None, None,
+    )
+    tmp.replace(out)
+    lst.unlink(missing_ok=True)
+    return out
