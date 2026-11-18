@@ -122,6 +122,7 @@ function route() {
   else if (hash.startsWith('#/reglages')) view = SettingsView();
   else if (hash.startsWith('#/bios')) view = BiosView();
   else if (hash.startsWith('#/compils')) view = CompilsView();
+  else if (hash.startsWith('#/live')) view = LiveView();
   else if (hash.match(/^#\/compil\/([a-z0-9]+)/)) view = CompilView(hash.match(/^#\/compil\/([a-z0-9]+)/)[1]);
   else view = HomeView();
 }
@@ -247,6 +248,7 @@ function HomeView() {
       </div>
       <div>
         <div class="tabs" id="tabs">
+          <button data-tab="live">🔴 Live (clips auto)</button>
           <button data-tab="lien">Lien d'un clip</button>
           <button data-tab="chaine">Top clips d'une chaîne</button>
           <button data-tab="vod">Passage d'une VOD</button>
@@ -291,7 +293,21 @@ function HomeView() {
   function renderTab() {
     $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     const body = $('#tabBody');
-    if (tab === 'lien') {
+    if (tab === 'live') {
+      body.innerHTML = `<div class="stack">
+          <p class="muted" style="margin:0">Les VOD sont souvent réservées aux abonnés, mais le live est ouvert à tous : ClipForge regarde le live${SETTINGS && SETTINGS.game_filter ? ` (seulement quand c'est <b>${esc(SETTINGS.game_filter)}</b>)` : ''}, lit le chat et crée les clips tout seul.</p>
+          <form class="import-row" id="liveQuick"><input type="text" id="liveQuickIn" placeholder="Nom de la chaîne (ex : ohnepixel)" required autocomplete="off">
+            <button class="btn-primary btn-big" type="submit">Surveiller</button></form>
+          <div class="row"><a class="btn" href="#/live">Voir les chaînes surveillées et les lives en cours →</a></div>
+        </div>`;
+      $('#liveQuick').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await api('/api/live', { method: 'POST', json: { channel: $('#liveQuickIn').value.trim(), auto, formats } });
+          location.hash = '#/live';
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    } else if (tab === 'lien') {
       body.innerHTML = `<form class="import-row" id="urlForm">
           <input type="url" id="urlIn" placeholder="https://www.twitch.tv/…/clip/…  ou  https://clips.twitch.tv/…" autocomplete="off" required>
           <button class="btn-primary btn-big" type="submit">Importer</button>
@@ -303,8 +319,13 @@ function HomeView() {
       });
       setTimeout(() => $('#urlIn') && !('ontouchstart' in window) && $('#urlIn').focus(), 50);
     } else if (tab === 'chaine') {
-      body.innerHTML = `<form class="import-row" id="chForm">
-          <input type="text" id="chIn" placeholder="Nom de la chaîne Twitch (ex : shroud)" value="${esc(store.get('channel', ''))}" required autocomplete="off">
+      const gameMode = store.get('chMode', 'jeu') === 'jeu' && SETTINGS && SETTINGS.game_filter;
+      body.innerHTML = `<div class="seg" id="chMode" style="margin-bottom:10px">
+          ${SETTINGS && SETTINGS.game_filter ? `<button data-v="jeu" class="${gameMode ? 'on' : ''}">Top clips ${esc(SETTINGS.game_filter)} (toutes les chaînes)</button>` : ''}
+          <button data-v="chaine" class="${gameMode ? '' : 'on'}">Une chaîne</button></div>
+        <form class="import-row" id="chForm">
+          ${gameMode ? `<select id="chLang" style="width:auto;min-height:54px">${[['en', 'Anglais'], ['fr', 'Français'], ['', 'Toutes langues']].map(([v, l]) => `<option value="${v}" ${v === store.get('discoverLang', SETTINGS.discover_lang || 'en') ? 'selected' : ''}>${l}</option>`).join('')}</select>`
+            : `<input type="text" id="chIn" placeholder="Nom de la chaîne Twitch (ex : ohnepixel)" value="${esc(store.get('channel', ''))}" required autocomplete="off">`}
           <select id="chPeriod" style="width:auto;min-height:54px">
             <option value="24h">24 h</option><option value="7j" selected>7 jours</option><option value="30j">30 jours</option><option value="tout">Depuis toujours</option>
           </select>
@@ -312,15 +333,23 @@ function HomeView() {
         </form>
         <div id="clipRes"></div>`;
       $('#chPeriod').value = store.get('period', '7j');
+      $('#chMode').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; store.set('chMode', b.dataset.v); clips = []; renderTab(); });
       $('#chForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = e.submitter;
-        const channel = $('#chIn').value.trim();
         const period = $('#chPeriod').value;
-        store.set('channel', channel); store.set('period', period);
+        store.set('period', period);
         btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Recherche…';
         try {
-          clips = await api(`/api/channel-clips?channel=${encodeURIComponent(channel)}&period=${period}`);
+          if (gameMode) {
+            const l = $('#chLang').value;
+            store.set('discoverLang', l);
+            clips = (await api(`/api/discover/clips?period=${period}&lang=${l}`)).clips;
+          } else {
+            const channel = $('#chIn').value.trim();
+            store.set('channel', channel);
+            clips = await api(`/api/channel-clips?channel=${encodeURIComponent(channel)}&period=${period}`);
+          }
           selected = new Set();
           renderClips();
         } catch (err) { toast(err.message, 'err'); }
@@ -371,7 +400,7 @@ function HomeView() {
           <span class="check">${ICON.check}</span>
           ${c.duration ? `<span class="dur">${fmtDur(c.duration)}</span>` : ''}
           <img loading="lazy" src="${esc(c.thumbnail || '')}" alt="" onerror="this.style.visibility='hidden'">
-          <div class="meta"><b title="${esc(c.title)}">${esc(c.title)}</b><span class="muted">${fmtViews(c.views)}</span></div>
+          <div class="meta"><b title="${esc(c.title)}">${esc(c.title)}</b><span class="muted">${c.channel ? `${esc(c.channel)} · ` : ''}${fmtViews(c.views)}</span></div>
         </div>`).join('')}</div>
       <div class="row" style="margin-top:14px;justify-content:flex-end">
         <span class="muted" id="selCount"></span>
@@ -1634,6 +1663,127 @@ function EditorView(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Live : clippeur automatique en direct (GTA 6)
+// ---------------------------------------------------------------------------
+const LIVE_STATE = {
+  direct: ['ok', '🔴 En direct'], attente: ['', '⌛ Hors ligne'], pause_jeu: ['warn', '⏸ Pas sur le bon jeu'],
+  erreur: ['err', '⚠️ Erreur'], demarrage: ['', 'Démarrage…'], arret: ['', 'Arrêté'],
+};
+
+function LiveView() {
+  const app = $('#app');
+  let timer = null;
+  let destroyed = false;
+  let lang = store.get('discoverLang', (SETTINGS && SETTINGS.discover_lang) || 'en');
+  const game = (SETTINGS && SETTINGS.game_filter) || '';
+  let sensitivity = store.get('liveSens', 'normale');
+  let quality = store.get('liveQuality', '1080');
+  let autoMontage = store.get('liveAuto', false);
+
+  app.innerHTML = `<div class="editor-head"><a class="btn btn-ghost icon-btn" href="#/">${ICON.back}</a><h1 style="margin:0">Clips automatiques en direct</h1></div>
+    <p class="muted" style="margin-top:-6px">L'appli regarde le live, lit le chat (pics de messages, « clip it », KEKW, Pog…) et écoute le son. Quand ça s'emballe, elle crée le clip toute seule${game ? `, <b>seulement quand le streamer joue à ${esc(game)}</b>` : ''}. Garde ClipForge ouvert sur le PC pendant le live.</p>
+    <div class="compil-grid">
+      <div class="stack">
+        <div class="panel stack">
+          <h3 style="margin:0">➕ Surveiller une chaîne</h3>
+          <form class="import-row" id="liveForm"><input type="text" id="liveIn" placeholder="Nom de la chaîne (ex : ohnepixel)" autocomplete="off" required>
+            <button class="btn-primary" type="submit">Surveiller</button></form>
+          <div class="row" style="gap:18px;align-items:flex-start">
+            <div><div class="muted small" style="margin-bottom:6px">Sensibilité</div>${'<div class="seg" id="sensSeg">' + [['faible', 'Moins de clips'], ['normale', 'Normale'], ['forte', 'Plus de clips']].map(([v, l]) => `<button data-v="${v}" class="${v === sensitivity ? 'on' : ''}">${l}</button>`).join('') + '</div>'}</div>
+            <div><div class="muted small" style="margin-bottom:6px">Qualité</div><div class="seg" id="qualSeg">${[['1080', '1080p'], ['720', '720p (connexion plus légère)']].map(([v, l]) => `<button data-v="${v}" class="${v === quality ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+          </div>
+          <label class="switch"><span><b>Monter et exporter chaque clip automatiquement</b><br><span class="muted small">Sous-titres + formats cochés sur l'accueil (${esc(((SETTINGS && SETTINGS.default_formats) || []).join(', '))})</span></span><input type="checkbox" id="liveAuto" ${autoMontage ? 'checked' : ''}><span class="knob"></span></label>
+          <p class="muted small" style="margin:0">Durée des clips : celle choisie sur l'accueil (${fmtDur((SETTINGS && SETTINGS.clip_length) || 61)}, fin comprise). Jeu : ${esc(game || 'tous')} (modifiable dans les Réglages).</p>
+        </div>
+        <div id="watchers" class="stack"><div class="empty">Chargement…</div></div>
+      </div>
+      <div class="panel stack">
+        <div class="panel-title" style="flex-wrap:wrap"><h3 style="margin:0">🎮 Lives ${esc(game || '')} en ce moment</h3>
+          <div class="seg" id="langSeg">${[['en', 'Anglais'], ['fr', 'Français'], ['', 'Toutes']].map(([v, l]) => `<button data-v="${v}" class="${v === lang ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        <div id="streams" class="stack" style="gap:8px"><span class="muted small">Chargement…</span></div>
+      </div>
+    </div>`;
+
+  const seg = (sel, fn) => $(sel).addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; $$(`${sel} button`).forEach((x) => x.classList.toggle('on', x === b)); fn(b.dataset.v); });
+  seg('#sensSeg', (v) => { sensitivity = v; store.set('liveSens', v); });
+  seg('#qualSeg', (v) => { quality = v; store.set('liveQuality', v); });
+  seg('#langSeg', (v) => { lang = v; store.set('discoverLang', v); loadStreams(); });
+  $('#liveAuto').addEventListener('change', (e) => { autoMontage = e.target.checked; store.set('liveAuto', autoMontage); });
+
+  async function watch(channel) {
+    try {
+      await api('/api/live', { method: 'POST', json: { channel, sensitivity, quality, auto: autoMontage, formats: (SETTINGS && SETTINGS.default_formats) || ['tiktok', 'reels', 'shorts'] } });
+      toast(`Surveillance de ${channel} lancée ✓`, 'ok');
+      refresh();
+    } catch (err) { toast(err.message, 'err'); }
+  }
+  $('#liveForm').addEventListener('submit', (e) => { e.preventDefault(); watch($('#liveIn').value.trim()); $('#liveIn').value = ''; });
+
+  async function loadStreams() {
+    const box = $('#streams');
+    box.innerHTML = '<span class="muted small"><span class="spinner" style="display:inline-block;vertical-align:middle"></span> Recherche des lives…</span>';
+    try {
+      const r = await api(`/api/discover/streams?lang=${lang}`);
+      if (destroyed) return;
+      box.innerHTML = r.streams.length ? r.streams.map((s) => `<div class="citem" style="grid-template-columns:120px minmax(0,1fr) auto">
+          <span class="cthumb" style="width:120px;background-image:url('${esc(s.thumbnail || '')}')"></span>
+          <div class="cmeta"><b>${esc(s.display)}</b><span class="muted small">${fmtViews(s.viewers).replace('vues', 'spectateurs')} · ${esc((s.language || '').toUpperCase())}</span>
+            <span class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.title || '')}</span></div>
+          <button class="btn-sm" data-watch="${esc(s.channel)}">Surveiller</button></div>`).join('')
+        : '<p class="muted">Aucun live sur ce jeu pour l\'instant.</p>';
+      $$('[data-watch]', box).forEach((b) => b.addEventListener('click', () => watch(b.dataset.watch)));
+    } catch (err) { box.innerHTML = `<div class="err-box">${esc(err.message)}</div>`; }
+  }
+
+  function card(w) {
+    const [cls, label] = LIVE_STATE[w.state] || ['', w.state];
+    const st = w.stream || {};
+    const pct = Math.max(0, Math.min(100, (w.score / (w.threshold * 1.5)) * 100));
+    const thrPct = (1 / 1.5) * 100;
+    return `<div class="panel stack" data-ch="${esc(w.channel)}">
+      <div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(st.display || w.channel)}</h3>
+        <span class="muted small">${esc(st.game || '')}${st.viewers ? ` · ${fmtViews(st.viewers).replace('vues', 'spectateurs')}` : ''}${st.quality ? ` · ${esc(st.quality)}` : ''}</span></div>
+        <span class="badge ${cls}">${label}</span></div>
+      <p class="muted small" style="margin:0">${esc(w.message)}</p>
+      ${w.state === 'direct' ? `
+        <div><div class="row" style="justify-content:space-between"><span class="small"><b>Hype</b> (chat + son)</span><span class="muted small">${w.chat_per_min} msg/min · ${w.buffered} s en mémoire</span></div>
+          <div class="hype"><i style="width:${pct}%"></i><span style="left:${thrPct}%" title="Seuil de clip"></span></div></div>
+        <div class="row"><button class="btn-primary" data-clipnow="${esc(w.channel)}">✂️ Clipper maintenant</button>
+          <span class="muted small">garde les ${fmtDur((SETTINGS && SETTINGS.clip_length) || 61)} qui viennent de se passer</span></div>` : ''}
+      ${w.clips.length ? `<div><div class="muted small" style="margin-bottom:6px">Clips créés (${w.clips.length})</div>
+        <div class="stack" style="gap:6px">${w.clips.slice(0, 6).map((c) => `<a class="citem" style="grid-template-columns:96px minmax(0,1fr);text-decoration:none;color:inherit" href="#/p/${c.id}">
+          <span class="cthumb" style="background-image:url('/api/projects/${c.id}/thumb')"></span>
+          <div class="cmeta"><b>${c.reason === 'manuel' ? '✂️ Clip manuel' : `🔥 Moment fort (score ${c.score})`}</b><span class="muted small">${new Date(c.t * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · ${fmtDur(c.duration)}</span></div></a>`).join('')}</div></div>` : ''}
+      <details><summary class="muted small">Journal</summary><div class="small muted" style="margin-top:6px">${w.events.map((e) => `<div>${new Date(e.t * 1000).toLocaleTimeString('fr-FR')} · ${esc(e.text)}</div>`).join('') || '—'}</div></details>
+      <div class="row" style="justify-content:flex-end"><button class="btn-sm btn-danger" data-stop="${esc(w.channel)}">Arrêter la surveillance</button></div>
+    </div>`;
+  }
+
+  async function refresh() {
+    let list = [];
+    try { list = await api('/api/live'); } catch { /* ignore */ }
+    if (destroyed) return;
+    const box = $('#watchers');
+    const open = new Set($$('details[open]', box).map((d) => d.closest('[data-ch]').dataset.ch));
+    box.innerHTML = list.length ? list.map(card).join('') : '<div class="empty card">Aucune chaîne surveillée. Ajoute un streamer ou choisis un live dans la liste.</div>';
+    $$('[data-ch]', box).forEach((el) => { if (open.has(el.dataset.ch)) { const d = $('details', el); if (d) d.open = true; } });
+    $$('[data-clipnow]', box).forEach((b) => b.addEventListener('click', async () => {
+      try { await api(`/api/live/${b.dataset.clipnow}/clip`, { method: 'POST' }); toast('Clip en cours de création ✓', 'ok'); } catch (err) { toast(err.message, 'err'); }
+    }));
+    $$('[data-stop]', box).forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm(`Arrêter la surveillance de ${b.dataset.stop} ?`)) return;
+      try { await api(`/api/live/${b.dataset.stop}`, { method: 'DELETE' }); refresh(); } catch (err) { toast(err.message, 'err'); }
+    }));
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 2500);
+  }
+
+  refresh();
+  loadStreams();
+  return { destroy() { destroyed = true; clearTimeout(timer); } };
+}
+
+// ---------------------------------------------------------------------------
 // Compilations YouTube (15-25 min, 30 min maximum)
 // ---------------------------------------------------------------------------
 const COMPIL_MSG = {
@@ -1955,6 +2105,9 @@ function SettingsView() {
         </div>
         <div class="card stack">
           <h2>Export vidéo</h2>
+          <label class="field">Jeu à clipper (vide = tous les jeux)<input type="text" id="sGame" list="gameList" value="${esc(s.game_filter || '')}" placeholder="Grand Theft Auto VI">
+            <datalist id="gameList"><option value="Grand Theft Auto VI"><option value="Grand Theft Auto V"><option value="Just Chatting"><option value="Valorant"><option value="Fortnite"></datalist></label>
+          <label class="field">Langue des lives et clips proposés<select id="sDiscLang">${opt([['en', 'Anglais'], ['fr', 'Français'], ['', 'Toutes']], s.discover_lang ?? 'en')}</select></label>
           <label class="field">Durée max TikTok / Reels / Shorts (fin comprise)<select id="sVmax">${opt([[30, '30 s'], [45, '45 s'], [61, '1 min 01 (conseillé)'], [90, '1 min 30'], [180, '3 min']].map(([v, l]) => [String(v), l]), String(s.vertical_max_seconds || 61))}</select></label>
           <label class="field">Qualité<select id="sQuality">${opt([['rapide', 'Rapide'], ['equilibre', 'Équilibrée (conseillé)'], ['max', 'Maximale (plus lent)']], s.quality)}</select></label>
           <label class="field">Carte graphique<select id="sGpu">${opt([['auto', 'Utiliser si disponible'], ['off', 'Ne pas utiliser']], s.gpu)}</select></label>
@@ -1992,6 +2145,7 @@ function SettingsView() {
             promo_outro: $('#sPromoOutro').checked, promo_intro_text: $('#sPromoIntroText').value.trim(),
             promo_outro_text: $('#sPromoOutroText').value.trim(),
             vertical_max_seconds: +$('#sVmax').value,
+            game_filter: $('#sGame').value.trim(), discover_lang: $('#sDiscLang').value,
             whisper_model: $('#sModel').value, language: $('#sLang').value, quality: $('#sQuality').value, gpu: $('#sGpu').value,
             default_watermark: $('#sWm').value.trim(), default_caption_style: $('#sCap').value, default_title_style: $('#sTitle').value,
             twitch_cookies: $('#sCookies').value,

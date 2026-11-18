@@ -363,3 +363,80 @@ def _short_error(exc: Exception) -> str:
         if re.search(pattern, msg, re.IGNORECASE):
             return french
     return msg[:300]
+
+
+# ---------------------------------------------------------------------------
+# Découverte par jeu (ex. GTA VI) : lives en cours et clips les plus vus
+# ---------------------------------------------------------------------------
+GQL_PERIODS = {"24h": "LAST_DAY", "7j": "LAST_WEEK", "30j": "LAST_MONTH", "tout": "ALL_TIME"}
+
+
+def _gql(query: str) -> dict:
+    import json
+
+    import yt_dlp
+    from yt_dlp.networking import Request
+
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+        req = Request(GQL_URL, data=json.dumps({"query": query}).encode(),
+                      headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"})
+        data = json.loads(ydl.urlopen(req).read().decode("utf-8"))
+    if data.get("errors"):
+        raise DownloadError("Twitch a refusé la recherche.")
+    return data.get("data") or {}
+
+
+def _lang_code(lang: str | None) -> str:
+    lang = (lang or "").strip().lower()
+    return lang if re.fullmatch(r"[a-z]{2}", lang) else ""
+
+
+def game_streams(game: str, lang: str | None = None, limit: int = 20) -> list[dict]:
+    """Lives en cours sur un jeu, du plus regardé au moins regardé."""
+    import json
+
+    code = _lang_code(lang)
+    opts = f', options:{{languages:["{code}"]}}' if code else ""
+    q = ('query{game(name:%s){streams(first:%d%s){edges{node{title viewersCount language '
+         'previewImageURL(width:320,height:180) broadcaster{login displayName}}}}}}') % (json.dumps(game), limit, opts)
+    try:
+        edges = ((_gql(q).get("game") or {}).get("streams") or {}).get("edges") or []
+    except DownloadError:
+        raise
+    except Exception as exc:
+        raise DownloadError(f"Impossible de lister les lives : {_short_error(exc)}") from exc
+    out = []
+    for e in edges:
+        n = e.get("node") or {}
+        b = n.get("broadcaster") or {}
+        if b.get("login"):
+            out.append({"channel": b["login"], "display": b.get("displayName") or b["login"], "title": n.get("title"),
+                        "viewers": n.get("viewersCount"), "language": (n.get("language") or "").lower(),
+                        "thumbnail": n.get("previewImageURL")})
+    return out
+
+
+def game_clips(game: str, period: str = "7j", lang: str | None = None, limit: int = 30) -> list[dict]:
+    """Clips les plus vus d'un jeu, toutes chaînes confondues (sans passer par les VOD)."""
+    import json
+
+    code = _lang_code(lang)
+    crit = f"period:{GQL_PERIODS.get(period, 'LAST_WEEK')}" + (f", languages:[{code.upper()}]" if code else "")
+    q = ('query{game(name:%s){clips(first:%d, criteria:{%s}){edges{node{url title viewCount durationSeconds '
+         'thumbnailURL language createdAt broadcaster{login displayName}}}}}}') % (json.dumps(game), limit, crit)
+    try:
+        edges = ((_gql(q).get("game") or {}).get("clips") or {}).get("edges") or []
+    except DownloadError:
+        raise
+    except Exception as exc:
+        raise DownloadError(f"Impossible de lister les clips : {_short_error(exc)}") from exc
+    out = []
+    for e in edges:
+        n = e.get("node") or {}
+        b = n.get("broadcaster") or {}
+        if n.get("url"):
+            out.append({"url": n["url"], "title": n.get("title") or "Clip", "views": n.get("viewCount"),
+                        "duration": n.get("durationSeconds"), "thumbnail": n.get("thumbnailURL"),
+                        "channel": b.get("displayName") or b.get("login"), "language": (n.get("language") or "").lower(),
+                        "game": game})
+    return out

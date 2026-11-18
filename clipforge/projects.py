@@ -196,6 +196,7 @@ def finalize_source(pid: str, file_name: str, auto_layout: bool = True) -> dict:
     if (
         not edit["title"].get("text")
         and not (project.get("origin") or {}).get("vod_range")
+        and not (project.get("origin") or {}).get("live")
         and not social.is_junk_title(project.get("title"))
     ):
         edit["title"]["text"] = project.get("title") or ""

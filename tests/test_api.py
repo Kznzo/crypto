@@ -96,3 +96,12 @@ def test_clip_length_setting_and_split(tmp_path):
         assert c["edit"]["end"] - c["edit"]["start"] == pytest.approx(26.4, abs=1.6)
         assert c["source"]["duration"] < 35  # seul le passage est gardé
     local.put("/api/settings", json={"clip_length": 61})
+
+
+def test_live_api_validation():
+    assert local.post("/api/live", json={"channel": "pas valide !"}).status_code == 400
+    assert local.post("/api/live/inconnu/clip").status_code == 404
+    assert local.delete("/api/live/inconnu").status_code == 404
+    assert local.put("/api/settings", json={"discover_lang": "francais"}).status_code == 400
+    r = local.put("/api/settings", json={"game_filter": " Grand Theft Auto VI ", "discover_lang": "fr"})
+    assert r.json()["game_filter"] == "Grand Theft Auto VI" and r.json()["discover_lang"] == "fr"

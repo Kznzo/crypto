@@ -1,8 +1,10 @@
 """Serveur web local : l'interface s'ouvre sur le PC et sur la tablette (même Wi-Fi)."""
 from __future__ import annotations
 
+import contextlib
 import copy
 import io
+import threading
 import time
 import ipaddress
 import re
@@ -15,7 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, analysis, captions, compilations, pipeline, projects, promo, render, social, sources
+from . import __version__, analysis, captions, compilations, live, pipeline, projects, promo, render, social, sources
 from .analysis import clamp_rect
 from .config import (
     CAPTION_STYLES, CLIP_LENGTHS, DATA_DIR, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, clip_seconds,
@@ -24,7 +26,16 @@ from .config import (
 from .ffmpeg_utils import available_hw_encoder
 from .jobs import manager
 
-app = FastAPI(title="ClipForge", version=__version__, docs_url=None, redoc_url=None)
+@contextlib.asynccontextmanager
+async def lifespan(_app):
+    # Au lancement : reprend la surveillance des lives (et de tes streamers favoris).
+    threading.Thread(target=live.manager.restore, daemon=True).start()
+    yield
+    for w in list(live.manager.watchers.values()):
+        w.stop()
+
+
+app = FastAPI(title="ClipForge", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan)
 PORT = 8765
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv", ".ts"}
 
@@ -207,6 +218,10 @@ async def put_settings(request: Request):
     for key in ("promo_intro_text", "promo_outro_text"):
         if key in data:
             data[key] = str(data[key] or "").strip()[:60]
+    if "game_filter" in data:
+        data["game_filter"] = str(data["game_filter"] or "").strip()[:80]
+    if "discover_lang" in data and not re.fullmatch(r"([a-z]{2})?", str(data["discover_lang"] or "")):
+        raise HTTPException(400, "Langue invalide")
     if "clip_length" in data and data["clip_length"] not in CLIP_LENGTHS:
         raise HTTPException(400, "Durée invalide (30, 45 ou 61 s).")
     if "vertical_max_seconds" in data:
@@ -361,7 +376,7 @@ def _suggested_profile(stats: dict) -> dict:
     langs = [lang for lang, _ in stats["languages"]]
     return {
         "account_name": "",
-        "streamers": [c for c, _ in stats["channels"][:3]],
+        "streamers": list(dict.fromkeys(load_settings().get("favorite_streamers", []) + [c for c, _ in stats["channels"]]))[:3],
         "games": [g for g, _ in stats["games"][:2]],
         "lang": "fr" if langs and langs[0] == "fr" else "en",
         "link": "",
@@ -751,6 +766,74 @@ def open_compilation_folder(cid: str, request: Request):
         raise HTTPException(403, "Disponible seulement sur le PC.")
     _compil_or_404(cid)
     return _open_in_explorer(compilations.compil_dir(cid))
+
+
+# ---------------------------------------------------------------------------
+# Clippeur automatique en direct + découverte GTA 6
+# ---------------------------------------------------------------------------
+
+@app.get("/api/live")
+def live_list():
+    return live.manager.list()
+
+
+@app.post("/api/live")
+async def live_start(request: Request):
+    data = await request.json()
+    try:
+        channel = sources.normalize_channel(str(data.get("channel") or ""))
+    except sources.DownloadError as exc:
+        raise HTTPException(400, str(exc)) from None
+    settings = load_settings()
+    options = {
+        "sensitivity": data.get("sensitivity") if data.get("sensitivity") in live.SENSITIVITY else "normale",
+        "length": _length(data.get("length")) or settings.get("clip_length", 61),
+        "quality": "720" if str(data.get("quality")) == "720" else "1080",
+        "auto": bool(data.get("auto")),
+        "formats": _formats(data.get("formats")),
+        "max_per_hour": max(1, min(60, int(data.get("max_per_hour") or 12))),
+        "game": str(data["game"]).strip()[:80] if isinstance(data.get("game"), str) else settings.get("game_filter", ""),
+    }
+    return live.manager.start(channel, options).status()
+
+
+@app.delete("/api/live/{channel}")
+def live_stop(channel: str):
+    if not live.manager.stop(channel.lower()):
+        raise HTTPException(404, "Cette chaîne n'est pas surveillée.")
+    return {"ok": True}
+
+
+@app.post("/api/live/{channel}/clip")
+def live_clip_now(channel: str):
+    w = live.manager.get(channel.lower())
+    if not w:
+        raise HTTPException(404, "Cette chaîne n'est pas surveillée.")
+    if w.state != "direct" or not w.clip_now():
+        raise HTTPException(409, "Pas encore d'images du live en mémoire.")
+    return {"ok": True}
+
+
+@app.get("/api/discover/streams")
+def discover_streams(lang: str | None = None, game: str | None = None):
+    settings = load_settings()
+    game = game or settings.get("game_filter") or "Grand Theft Auto VI"
+    lang = settings.get("discover_lang", "en") if lang is None else lang
+    try:
+        return {"game": game, "streams": sources.game_streams(game, lang)}
+    except sources.DownloadError as exc:
+        raise HTTPException(502, str(exc)) from None
+
+
+@app.get("/api/discover/clips")
+def discover_clips(period: str = "7j", lang: str | None = None, game: str | None = None):
+    settings = load_settings()
+    game = game or settings.get("game_filter") or "Grand Theft Auto VI"
+    lang = settings.get("discover_lang", "en") if lang is None else lang
+    try:
+        return {"game": game, "clips": sources.game_clips(game, period, lang)}
+    except sources.DownloadError as exc:
+        raise HTTPException(502, str(exc)) from None
 
 
 # ---------------------------------------------------------------------------

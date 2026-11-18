@@ -83,6 +83,7 @@ GAME_TAGS: dict[str, list[str]] = {
     "art": ["#art", "#digitalart"],
     "sports": ["#sports"],
 }
+GAME_SHORT = {"grand theft auto vi": "GTA 6", "grand theft auto v": "GTA 5"}
 NON_GAMING = {"just chatting", "irl", "music", "art", "sports", "chess", "talk shows & podcasts"}
 
 BROAD = {
@@ -483,9 +484,18 @@ def compilation_texts(compil: dict, plist: list[dict], chapters: list[dict], lan
     chapter_lines = youtube_chapters(labelled, (compil.get("export") or {}).get("duration") or total)
 
     title = compil.get("title") or "Best of Twitch"
+    # Jeu principal de la vidéo (ex. GTA 6) s'il représente la majorité des clips.
+    game_count = Counter((p.get("origin") or {}).get("game") for p in plist if (p.get("origin") or {}).get("game"))
+    main_game = ""
+    if game_count:
+        g, n = game_count.most_common(1)[0]
+        if n >= 0.6 * len(plist):
+            main_game = GAME_SHORT.get(g.lower(), g)
     if lang == "en":
         titles = [title, f"Best Twitch Clips 😂 ft. {top}" if top else "Best Twitch Clips of the Week 😂",
                   f"Twitch Moments That Went Too Far 💀 ({top})" if top else "Twitch Moments That Went Too Far 💀"]
+        if main_game:
+            titles.insert(1, f"Funniest {main_game} Twitch Moments 😂 ft. {top}" if top else f"Funniest {main_game} Twitch Moments 😂")
         intro = (f"The best Twitch moments from {top}! 😂" if top else "The best Twitch moments of the week! 😂")
         sub = "🔔 Subscribe and turn on notifications so you never miss a video."
         chap_head, credit_head = "⏱️ Chapters", "🎥 Streamers in this video (go support them!)"
@@ -495,6 +505,8 @@ def compilation_texts(compil: dict, plist: list[dict], chapters: list[dict], lan
     else:
         titles = [title, f"BEST OF TWITCH 😂 {top}" if top else "BEST OF TWITCH de la semaine 😂",
                   f"Les meilleurs moments de {top} 💀" if top else "Les pires moments de Twitch 💀"]
+        if main_game:
+            titles.insert(1, f"BEST OF {main_game} sur Twitch 😂 {top}" if top else f"BEST OF {main_game} sur Twitch 😂")
         intro = (f"Les meilleurs moments Twitch de {top} ! 😂" if top else "Les meilleurs moments Twitch de la semaine ! 😂")
         sub = "🔔 Abonne-toi et active la cloche pour ne rater aucune vidéo."
         chap_head, credit_head = "⏱️ Chapitres", "🎥 Les streamers de la vidéo (allez les soutenir !)"

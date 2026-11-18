@@ -9,6 +9,19 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 
 ## Ce que fait l'appli
 
+### 🔴 Clips automatiques en direct (nouveau)
+Les VOD sont souvent réservées aux abonnés, mais **le live est ouvert à tous**. Donne le nom d'une chaîne :
+- ClipForge regarde le live en continu (il garde en mémoire les 4 dernières minutes, sans les pubs Twitch) ;
+- il lit le **chat** (pics de messages, « clip it », KEKW, LUL, Pog…) et écoute le **son** (cris, rires) ;
+- quand ça s'emballe, il **crée le clip tout seul** (la montée + la réaction) à la durée choisie, détecte la facecam, et peut le monter/exporter automatiquement ;
+- le bouton **« ✂️ Clipper maintenant »** garde les dernières secondes, comme le bouton clip de Twitch ;
+- **seulement GTA 6** par défaut : si le streamer change de jeu, la surveillance se met en pause et reprend quand il revient sur GTA VI (réglable dans Réglages → « Jeu à clipper ») ;
+- **OhnePixel** est surveillé d'office ; ajoute d'autres chaînes en un clic depuis la liste **« Lives GTA VI en ce moment »** (anglais / français) ;
+- l'onglet « Top clips » propose aussi les **clips GTA VI les plus vus de toutes les chaînes** (24 h, 7 j, 30 j).
+
+> Laisse ClipForge ouvert sur le PC pendant les lives. Chaque chaîne surveillée utilise environ 6 à 8 Mbit/s en 1080p (choisis 720p pour alléger) et ~250 Mo d'espace temporaire.
+
+
 **Importer**
 - 🔗 Coller le lien d'un **clip Twitch** (`twitch.tv/…/clip/…`, `clips.twitch.tv/…`)
 - 🏆 Afficher les **clips les plus vus d'une chaîne Twitch** (24 h, 7 j, 30 j, depuis toujours) et en importer plusieurs d'un coup
@@ -132,6 +145,9 @@ ClipForge utilise automatiquement la carte graphique si elle le permet (NVIDIA, 
 **Les sous-titres ne sont pas assez précis.**
 Dans **Réglages**, passe la précision sur *Très précis* (plus lent). Tu peux aussi corriger chaque phrase à la main dans l'onglet Sous-titres. La première génération télécharge le modèle d'IA (une seule fois).
 
+**Les VOD sont bloquées (abonnés seulement).**
+Utilise le mode **Live** : ClipForge clippe directement pendant le live, ou prends les **Top clips GTA VI** déjà créés sur Twitch.
+
 **« Cette vidéo est réservée aux abonnés ».**
 Beaucoup de streamers réservent leurs VOD aux abonnés. Si tu es abonné, va dans **Réglages → Compte Twitch**, choisis le navigateur où tu es connecté à Twitch (Firefox conseillé), puis réessaie.
 
@@ -170,6 +186,7 @@ clipforge/
   render.py       graphe de filtres FFmpeg et encodage par plateforme
   promo.py        intro YouTube / fin TikTok-Reels-Shorts animées (Pillow) avec bruitages
   compilations.py compilations YouTube : liste de clips, rendu par morceaux, assemblage, chapitres
+  live.py         clippeur en direct : enregistrement HLS (TS / fMP4, sans pubs), chat, détection, découpe
   static/         interface (HTML/CSS/JS sans dépendance, tactile)
   assets/         polices (licence OFL) et modèle de détection de visage (licence MIT)
 ```

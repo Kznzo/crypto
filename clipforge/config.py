@@ -188,6 +188,9 @@ DEFAULT_SETTINGS = {
     # Intro YouTube / fin TikTok-Reels-Shorts (en anglais) : « envoie tes clips » + abonne-toi + cloche.
     "vertical_max_seconds": 61,  # durée max TikTok / Reels / Shorts (fin comprise)
     "clip_length": 61,  # durée visée des vidéos verticales générées : 30, 45 ou 61 s (fin comprise)
+    "game_filter": "Grand Theft Auto VI",  # ne clipper que ce jeu (vide = tous les jeux)
+    "favorite_streamers": ["ohnepixel"],  # surveillés automatiquement au premier lancement
+    "discover_lang": "en",  # langue des lives / clips proposés : en, fr… ou vide pour toutes
     "promo_email": "",
     "promo_intro": True,
     "promo_outro": True,
