@@ -111,6 +111,7 @@ function route() {
   const m = hash.match(/^#\/p\/([a-z0-9]+)/);
   if (m) view = EditorView(m[1]);
   else if (hash.startsWith('#/reglages')) view = SettingsView();
+  else if (hash.startsWith('#/bios')) view = BiosView();
   else view = HomeView();
 }
 
@@ -166,7 +167,7 @@ function HomeView() {
     <section class="card hero">
       <div>
         <h1>Tes clips Twitch, prêts pour TikTok, Reels et YouTube</h1>
-        <p class="lead">Colle un lien : ClipForge détecte la facecam, recadre en vertical, ajoute des sous-titres animés et un titre accrocheur, puis exporte dans tous les formats.</p>
+        <p class="lead">Colle un lien (Twitch anglais ou français) : ClipForge détecte la facecam, recadre en vertical, ajoute des sous-titres animés (en anglais ou dans la langue du clip) et un titre accrocheur, exporte dans tous les formats et te prépare les descriptions avec hashtags.</p>
       </div>
       <div>
         <div class="tabs" id="tabs">
@@ -667,6 +668,9 @@ function EditorView(id) {
   let groupsCache = { key: '', groups: [] };
   let resultSig = {};
   let rendered = false;
+  let pubData = null;
+  let pubVariant = 0;
+  let pubPlatform = store.get('pubPlatform', 'tiktok');
 
   app.innerHTML = '<div class="empty">Chargement du projet…</div>';
 
@@ -1229,6 +1233,11 @@ function EditorView(id) {
       body.innerHTML = `<div class="stack">
         ${sw('capOn', '<b>Sous-titres animés</b>', C.enabled, 'Générés automatiquement à partir de la voix, mot par mot.')}
         ${INFO.whisper ? '' : '<div class="err-box">Le module d\'IA n\'est pas installé : relance le lanceur ClipForge (il l\'installe tout seul) ou tape « pip install faster-whisper ».</div>'}
+        <div class="row" style="align-items:flex-end">
+          <label class="field grow">Langue parlée dans le clip<select id="capSpoken">${Object.entries(INFO.languages).map(([k, l]) => `<option value="${k}" ${k === (C.spoken || 'auto') ? 'selected' : ''}>${k === 'auto' ? 'Auto (langue de la chaîne Twitch)' : esc(l)}</option>`).join('')}</select></label>
+        </div>
+        ${sw('capEn', '<b>Sous-titres en anglais</b>', !!C.english, 'Traduit la voix en anglais (si le clip est déjà en anglais, rien ne change).')}
+        ${has ? `<div class="auto-reason">Sous-titres actuels : <b>${esc((INFO.languages[P.transcript.language] || P.transcript.language || '').toLowerCase())}</b>${P.transcript.translated ? ` (traduits depuis : ${esc((INFO.languages[P.transcript.spoken] || P.transcript.spoken || '').toLowerCase())})` : ''}${(!!C.english !== !!P.transcript.translated && P.transcript.spoken !== 'en') ? ' · <b style="color:var(--warn)">Regénère pour appliquer le changement de langue.</b>' : ''}</div>` : ''}
         <div class="row"><button class="${has ? '' : 'btn-primary'}" id="genBtn" ${INFO.whisper && !running ? '' : 'disabled'}>${ICON.magic} ${has ? 'Regénérer les sous-titres' : 'Générer les sous-titres (IA)'}</button></div>
         <div id="capJob"></div>
         <div><div class="muted small" style="margin-bottom:6px">Style</div>${seg('capStyle', Object.entries(INFO.caption_styles).map(([k, v]) => [k, esc(v.label)]), C.style)}</div>
@@ -1242,6 +1251,8 @@ function EditorView(id) {
           <div class="seg-list" id="segList">${P.transcript.segments.map((s, i) => `<div class="seg-item"><span class="t" data-seek="${s.start}">${fmtTime(s.start, false)}</span><textarea data-i="${i}" rows="2">${esc(s.text)}</textarea></div>`).join('')}</div></div>` : ''}
       </div>`;
       $('#capOn').addEventListener('change', (e) => { edit.captions.enabled = e.target.checked; draw(); scheduleSave(); });
+      $('#capSpoken').addEventListener('change', (e) => { edit.captions.spoken = e.target.value; scheduleSave(); });
+      $('#capEn').addEventListener('change', (e) => { edit.captions.english = e.target.checked; scheduleSave(); renderTab(); });
       $('#genBtn').addEventListener('click', async () => {
         try { await flushSave(); await api(`/api/projects/${id}/transcribe`, { method: 'POST' }); $('#genBtn').disabled = true; poll(); } catch (err) { toast(err.message, 'err'); }
       });
@@ -1286,7 +1297,16 @@ function EditorView(id) {
           ${INFO.is_local ? '<button class="btn-sm" id="openFolder">📂 Ouvrir le dossier</button>' : ''}
         </div>
         <div id="results" class="stack"></div>
+        <div class="pub">
+          <div class="panel-title" style="flex-wrap:wrap"><h3 style="margin:0">📝 Textes pour publier</h3>
+            ${seg('pubLang', [['auto', 'Auto'], ['en', 'Anglais'], ['fr', 'Français']], edit.publish_lang || 'auto')}</div>
+          <div class="seg" id="pubPlat">${Object.entries(INFO.platforms).map(([k, p]) => `<button data-v="${k}" class="${k === pubPlatform ? 'on' : ''}"><span class="dot ${k}"></span>${esc(p.label.replace('Instagram ', '').replace('YouTube Shorts', 'Shorts'))}</button>`).join('')}</div>
+          <div id="pubBody" class="stack" style="margin-top:12px"><span class="muted small">Chargement…</span></div>
+        </div>
       </div>`;
+      onSeg('pubLang', (v) => { edit.publish_lang = v; pubVariant = 0; scheduleSave(); loadPublish(v); });
+      onSeg('pubPlat', (v) => { pubPlatform = v; store.set('pubPlatform', v); renderPublish(); });
+      flushSave().then(() => loadPublish());
       $('#expGrid').addEventListener('change', (e) => {
         const k = e.target.value;
         expFormats = e.target.checked ? [...new Set([...expFormats, k])] : expFormats.filter((f) => f !== k);
@@ -1306,6 +1326,53 @@ function EditorView(id) {
       });
     }
     updateJobsUI();
+  }
+
+  // ---- Textes de publication (description, hashtags, tags) ------------------
+  async function loadPublish(lang) {
+    try {
+      pubData = await api(`/api/projects/${id}/publish?lang=${lang || edit.publish_lang || 'auto'}&variant=${pubVariant}`);
+    } catch (err) { pubData = null; toast(err.message, 'err'); }
+    renderPublish();
+  }
+
+  async function copyText(text, label) {
+    try { await navigator.clipboard.writeText(text); } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    toast(`${label} copié ✓`, 'ok');
+  }
+
+  function renderPublish() {
+    const box = $('#pubBody');
+    if (!box || !pubData) return;
+    const e = pubData.platforms[pubPlatform];
+    const kinds = { streamer: 'Streamer', jeu: 'Jeu', niche: 'Niche', large: 'Large', format: 'Format' };
+    const hasSrt = P.transcript && P.transcript.segments.length && (pubPlatform === 'youtube' || pubPlatform === 'shorts');
+    box.innerHTML = `
+      ${e.title ? `<label class="field">Titre<input type="text" id="pubTitle" value="${esc(e.title)}" maxlength="100"></label>` : ''}
+      <label class="field">Description${pubPlatform === 'shorts' || pubPlatform === 'youtube' ? '' : ' (légende)'}<textarea id="pubText" rows="7">${esc(e.text)}</textarea></label>
+      <div><div class="muted small" style="margin-bottom:6px">Hashtags choisis (touche-les pour savoir pourquoi)</div>
+        <div class="tags">${e.hashtags.map((h, i) => `<button class="tag ${h.kind}" data-why="${i}">${esc(h.tag)}<small>${kinds[h.kind] || ''}</small></button>`).join('')}</div>
+        <p class="muted small" id="pubWhy" style="margin:8px 0 0">${esc(e.hashtags[0] ? `${e.hashtags[0].tag} → ${e.hashtags[0].why}` : '')}</p></div>
+      ${e.tags ? `<label class="field">Tags YouTube (champ « Tags » de YouTube Studio)<textarea id="pubTags" rows="3">${esc(e.tags.join(', '))}</textarea></label>` : ''}
+      <p class="muted small" style="margin:0">💡 ${esc(e.tip)}</p>
+      <div class="row">
+        ${e.title ? `<button class="btn-sm" id="cpTitle">${ICON.copy} Copier le titre</button>` : ''}
+        <button class="btn-sm btn-primary" id="cpText">${ICON.copy} Copier la description</button>
+        ${e.tags ? `<button class="btn-sm" id="cpTags">${ICON.copy} Copier les tags</button>` : ''}
+        <button class="btn-sm" id="pubAgain">🔄 Autre version</button>
+        ${hasSrt ? `<a class="btn btn-sm" href="/api/projects/${id}/subtitles.srt?platform=${pubPlatform}" download>${ICON.download} Sous-titres .srt</a>` : ''}
+      </div>`;
+    box.querySelectorAll('[data-why]').forEach((b) => b.addEventListener('click', () => {
+      const h = e.hashtags[+b.dataset.why];
+      $('#pubWhy').textContent = `${h.tag} → ${h.why}`;
+    }));
+    const t = $('#cpTitle'); if (t) t.addEventListener('click', () => copyText($('#pubTitle').value, 'Titre'));
+    $('#cpText').addEventListener('click', () => copyText($('#pubText').value, 'Description'));
+    const tg = $('#cpTags'); if (tg) tg.addEventListener('click', () => copyText($('#pubTags').value, 'Tags'));
+    $('#pubAgain').addEventListener('click', () => { pubVariant += 1; loadPublish(); });
   }
 
   function jobLine(j) {
@@ -1359,23 +1426,24 @@ function EditorView(id) {
           <div class="bar"><i style="width:${Math.round(job.progress * 100)}%"></i></div><span class="muted small jmsg">${esc(job.message)}</span>`;
       } else if (ex.status === 'fini') {
         const url = `/api/projects/${id}/exports/${k}?v=${Math.round(ex.finished || 0)}`;
-        const desc = (P.descriptions || {})[k] || { text: '' };
         card.innerHTML = `${head}<span class="badge ok">Prête</span><span class="muted small">${p.width}×${p.height} · ${fmtDur(ex.duration)} · ${fmtSize(ex.size)}</span></div>
           <video controls playsinline preload="metadata" src="${url}"></video>
           <div class="row">
             <a class="btn btn-primary" href="${url}&download=1" download>${ICON.download} Télécharger</a>
             ${navigator.canShare ? `<button data-share="${k}">${ICON.share} Partager</button>` : ''}
-          </div>
-          <label class="field">Description à coller (${esc(p.label)})<textarea rows="4" readonly>${esc(desc.text)}</textarea></label>
-          <div class="row"><button class="btn-sm" data-copy="${k}">${ICON.copy} Copier la description</button></div>`;
-        const cp = card.querySelector('[data-copy]');
-        cp.addEventListener('click', async () => {
-          const ta = card.querySelector('textarea');
-          try { await navigator.clipboard.writeText(ta.value); } catch { ta.select(); document.execCommand('copy'); }
-          toast('Description copiée ✓', 'ok');
+            <button class="btn-ghost" data-pub="${k}">📝 Voir la description</button>
+          </div>`;
+        card.querySelector('[data-pub]').addEventListener('click', () => {
+          pubPlatform = k; store.set('pubPlatform', k);
+          $$('#pubPlat button').forEach((b) => b.classList.toggle('on', b.dataset.v === k));
+          renderPublish();
+          $('.pub').scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
         const sh = card.querySelector('[data-share]');
-        if (sh) sh.addEventListener('click', () => shareVideo(url, `${P.title}_${k}.mp4`, desc.text));
+        if (sh) sh.addEventListener('click', () => {
+          const text = pubData && pubData.platforms[k] ? pubData.platforms[k].text : '';
+          shareVideo(url, `${P.title}_${k}.mp4`, text);
+        });
       } else if (ex.status === 'erreur') {
         card.innerHTML = `${head}<span class="badge err">Erreur</span></div><div class="err-box">${esc(ex.error || 'Erreur inconnue')}</div>`;
       } else if (ex.status === 'annule') {
@@ -1423,6 +1491,95 @@ function EditorView(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Bios du compte (TikTok, Instagram, YouTube)
+// ---------------------------------------------------------------------------
+function BiosView() {
+  const app = $('#app');
+  app.innerHTML = '<div class="empty">Chargement…</div>';
+  let data = null;
+  const LABEL = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube (description de la chaîne)' };
+
+  async function copy(text, label) {
+    try { await navigator.clipboard.writeText(text); } catch {
+      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    toast(`${label} copié ✓`, 'ok');
+  }
+
+  function renderBios(bios) {
+    const box = $('#bioRes');
+    box.innerHTML = `<div class="bio-grid">${['tiktok', 'instagram', 'youtube'].map((k) => `
+        <div class="card stack"><h3><span class="dot ${k === 'instagram' ? 'reels' : k}"></span> ${LABEL[k]}</h3>
+          <p class="muted small" style="margin:-6px 0 0">Limite : ${bios.limits[k]} caractères</p>
+          ${bios[k].map((txt, i) => `<div class="bio-option"><pre>${esc(txt)}</pre>
+            <div class="row"><span class="count ${txt.length > bios.limits[k] ? 'over' : ''}">${txt.length}/${bios.limits[k]}</span>
+            <button class="btn-sm" data-copy="${k}:${i}">${ICON.copy} Copier</button></div></div>`).join('')}
+        </div>`).join('')}</div>
+      <div class="bio-grid" style="margin-top:18px">
+        <div class="card stack"><h3>Hashtags pour ton compte</h3>
+          <div class="tags">${bios.hashtags.map((t) => `<span class="tag large">${esc(t)}</span>`).join('')}</div>
+          <div class="row"><button class="btn-sm" id="cpHash">${ICON.copy} Copier les hashtags</button></div></div>
+        <div class="card stack"><h3>Mots-clés de la chaîne YouTube</h3>
+          <pre class="url-box" style="margin:0;white-space:pre-wrap;font:inherit">${esc(bios.youtube_keywords.join(', '))}</pre>
+          <div class="row"><button class="btn-sm" id="cpKw">${ICON.copy} Copier les mots-clés</button></div></div>
+        <div class="card stack"><h3>💡 Conseils</h3>${bios.tips.map((t) => `<p class="muted small" style="margin:0">${esc(t)}</p>`).join('')}</div>
+      </div>`;
+    box.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', () => {
+      const [k, i] = b.dataset.copy.split(':');
+      copy(bios[k][+i], 'Bio');
+    }));
+    $('#cpHash').addEventListener('click', () => copy(bios.hashtags.join(' '), 'Hashtags'));
+    $('#cpKw').addEventListener('click', () => copy(bios.youtube_keywords.join(', '), 'Mots-clés'));
+  }
+
+  function render() {
+    const { profile: pr, stats: st } = data;
+    const chips = (list) => list.length ? list.map(([n, c]) => `<span class="badge">${esc(n)} · ${c}</span>`).join('') : '<span class="muted small">Pas encore de données</span>';
+    const exp = Object.entries(st.exports || {});
+    app.innerHTML = `<div class="editor-head"><a class="btn btn-ghost icon-btn" href="#/">${ICON.back}</a><h1 style="margin:0">Bios & hashtags de ton compte</h1></div>
+      <div class="bio-grid">
+        <div class="card stack">
+          <h2>📊 Tes stats ClipForge</h2>
+          <div class="row" style="gap:22px">
+            <div><div class="stat-num">${st.projects}</div><div class="muted small">clips importés</div></div>
+            <div><div class="stat-num">${exp.reduce((a, [, n]) => a + n, 0)}</div><div class="muted small">vidéos exportées</div></div>
+          </div>
+          <div><div class="muted small" style="margin-bottom:6px">Streamers que tu clippes le plus</div><div class="stat-list">${chips(st.channels)}</div></div>
+          <div><div class="muted small" style="margin-bottom:6px">Jeux les plus présents</div><div class="stat-list">${chips(st.games)}</div></div>
+          <p class="muted small" style="margin:0">Les bios sont pré-remplies avec ce que tu clippes le plus. Les stats internes de TikTok et Instagram ne sont pas publiques : les propositions suivent leurs règles (limites, nombre de hashtags) et ta niche.</p>
+        </div>
+        <form class="card stack" id="bioForm">
+          <h2>✍️ Ton compte</h2>
+          <label class="field">Nom du compte<input type="text" name="account_name" maxlength="40" value="${esc(pr.account_name || '')}" placeholder="Ex : ClipZone"></label>
+          <label class="field">Streamers que tu clippes (séparés par des virgules)<input type="text" name="streamers" value="${esc((pr.streamers || []).join(', '))}" placeholder="Ex : shroud, xQc, Tarik"></label>
+          <label class="field">Jeux / thèmes<input type="text" name="games" value="${esc((pr.games || []).join(', '))}" placeholder="Ex : Valorant, Just Chatting"></label>
+          <div class="row">
+            <label class="field grow">Langue des bios<select name="lang"><option value="en" ${pr.lang !== 'fr' ? 'selected' : ''}>Anglais</option><option value="fr" ${pr.lang === 'fr' ? 'selected' : ''}>Français</option></select></label>
+            <label class="field grow">Fréquence de post<input type="text" name="frequency" maxlength="30" value="${esc(pr.frequency || '')}" placeholder="daily / chaque jour"></label>
+          </div>
+          <label class="field">Lien (Discord, linktree… optionnel)<input type="text" name="link" maxlength="100" value="${esc(pr.link || '')}"></label>
+          <button class="btn-primary btn-big" type="submit">${ICON.magic} Générer les bios</button>
+        </form>
+      </div>
+      <div id="bioRes" style="margin-top:18px"></div>`;
+    $('#bioForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try {
+        const res = await api('/api/bios', { method: 'POST', json: { profile: Object.fromEntries(f.entries()) } });
+        data.profile = res.profile;
+        renderBios(res.bios);
+        $('#bioRes').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) { toast(err.message, 'err'); }
+    });
+    renderBios(data.bios);
+  }
+
+  api('/api/bios').then((d) => { data = d; render(); }).catch((err) => { app.innerHTML = `<div class="card empty">${esc(err.message)}</div>`; });
+  return { destroy() { } };
+}
+
+// ---------------------------------------------------------------------------
 // Réglages
 // ---------------------------------------------------------------------------
 function SettingsView() {
@@ -1436,7 +1593,9 @@ function SettingsView() {
         <div class="card stack">
           <h2>Sous-titres (IA)</h2>
           <label class="field">Précision de la reconnaissance vocale<select id="sModel">${opt([['tiny', 'Très rapide (moins précis)'], ['base', 'Rapide'], ['small', 'Équilibré (conseillé)'], ['medium', 'Très précis (lent)'], ['large-v3', 'Maximum (très lent, gros PC)']], s.whisper_model)}</select></label>
-          <label class="field">Langue parlée<select id="sLang">${opt([['fr', 'Français'], ['en', 'Anglais'], ['es', 'Espagnol'], ['auto', 'Détection automatique']], s.language)}</select></label>
+          <label class="field">Langue parlée si Twitch ne l'indique pas (fichiers envoyés…)<select id="sLang">${opt(Object.entries(INFO.languages).map(([k, l]) => [k, l]), s.language)}</select></label>
+          <label class="switch"><span><b>Sous-titres en anglais par défaut</b><br><span class="muted small">Les clips en français (ou autre) sont traduits en anglais.</span></span><input type="checkbox" id="sEn" ${s.subtitles_english ? 'checked' : ''}><span class="knob"></span></label>
+          <label class="field">Langue des descriptions et hashtags<select id="sPub">${opt([['auto', 'Auto (langue du clip)'], ['en', 'Toujours en anglais'], ['fr', 'Toujours en français']], s.publish_lang || 'auto')}</select></label>
           <p class="muted small">Le modèle d'IA est téléchargé une seule fois (75 Mo à 3 Go selon la précision). ${INFO.whisper ? '✅ Module IA installé.' : '⚠️ Module IA non installé.'}</p>
         </div>
         <div class="card stack">
@@ -1466,6 +1625,8 @@ function SettingsView() {
             whisper_model: $('#sModel').value, language: $('#sLang').value, quality: $('#sQuality').value, gpu: $('#sGpu').value,
             default_watermark: $('#sWm').value.trim(), default_caption_style: $('#sCap').value, default_title_style: $('#sTitle').value,
             twitch_cookies: $('#sCookies').value,
+            subtitles_english: $('#sEn').checked,
+            publish_lang: $('#sPub').value,
           },
         });
         toast('Réglages enregistrés ✓', 'ok');

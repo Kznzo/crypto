@@ -262,6 +262,25 @@ main { max-width: 1440px; margin: 0 auto; padding: 22px 20px 80px; }
 .job-line .row { justify-content: space-between; }
 .err-box { color: var(--err); background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.3); border-radius: 12px; padding: 10px 12px; font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; }
 
+/* ---------- Textes de publication & bios ---------- */
+.pub { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 4px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { min-height: 34px; padding: 0 12px; border-radius: 99px; font-size: 0.88rem; gap: 6px; }
+.tag small { font-size: 0.68rem; opacity: 0.7; font-weight: 600; text-transform: uppercase; }
+.tag.streamer { border-color: rgba(192, 132, 252, 0.6); color: #e4ccff; }
+.tag.jeu { border-color: rgba(52, 211, 153, 0.6); color: #b5f5dc; }
+.tag.niche { border-color: rgba(251, 191, 36, 0.6); color: #fde7a7; }
+.tag.large { border-color: rgba(96, 165, 250, 0.6); color: #cfe2ff; }
+.tag.format { border-color: rgba(248, 113, 113, 0.6); color: #fecaca; }
+.bio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.bio-option { display: grid; gap: 6px; padding: 12px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
+.bio-option pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
+.bio-option .row { justify-content: space-between; }
+.count { font-size: 0.75rem; font-weight: 700; color: var(--ok); }
+.count.over { color: var(--err); }
+.stat-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.stat-num { font-size: 1.6rem; font-weight: 800; line-height: 1; }
+
 /* ---------- Fenêtres & notifications ---------- */
 .modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); display: grid; place-items: center; z-index: 50; padding: 16px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 24px; max-width: 460px; width: 100%; box-shadow: var(--shadow); }
@@ -287,6 +306,8 @@ main { max-width: 1440px; margin: 0 auto; padding: 22px 20px 80px; }
 @media (max-width: 600px) {
   header.top { padding: 8px 12px; }
   .brand span { display: none; }
+  header.top nav .lbl { display: none; }
+  header.top nav { gap: 2px; }
   .layout-choices { grid-template-columns: repeat(3, 1fr); }
   .exp-grid { grid-template-columns: 1fr; }
   .card, .panel { padding: 14px; }

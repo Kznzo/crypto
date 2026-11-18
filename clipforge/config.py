@@ -39,7 +39,6 @@ PLATFORMS: dict[str, dict] = {
         "safe_top": 0.09,
         "safe_bottom": 0.21,
         "safe_right": 0.13,
-        "hashtags": ["#twitch", "#twitchfr", "#clip", "#streamer", "#pourtoi", "#fyp"],
     },
     "reels": {
         "label": "Instagram Reels",
@@ -51,7 +50,6 @@ PLATFORMS: dict[str, dict] = {
         "safe_top": 0.11,
         "safe_bottom": 0.23,
         "safe_right": 0.12,
-        "hashtags": ["#reels", "#twitch", "#twitchfr", "#streamer", "#gaming", "#explore"],
     },
     "shorts": {
         "label": "YouTube Shorts",
@@ -63,7 +61,6 @@ PLATFORMS: dict[str, dict] = {
         "safe_top": 0.10,
         "safe_bottom": 0.20,
         "safe_right": 0.12,
-        "hashtags": ["#shorts", "#twitch", "#twitchfr", "#gaming", "#clip"],
     },
     "youtube": {
         "label": "YouTube (16:9)",
@@ -75,7 +72,6 @@ PLATFORMS: dict[str, dict] = {
         "safe_top": 0.05,
         "safe_bottom": 0.08,
         "safe_right": 0.0,
-        "hashtags": ["#twitch", "#twitchfr", "#bestof", "#clip"],
     },
 }
 
@@ -142,7 +138,7 @@ TITLE_STYLES: dict[str, dict] = {
 
 DEFAULT_SETTINGS = {
     "whisper_model": "small",
-    "language": "fr",
+    "language": "auto",  # langue parlée par défaut dans les clips (auto = détectée)
     "quality": "equilibre",  # rapide | equilibre | max
     "gpu": "auto",  # auto | off
     "default_watermark": "",
@@ -150,6 +146,9 @@ DEFAULT_SETTINGS = {
     "default_title_style": "blanc",
     "default_formats": ["tiktok", "reels", "shorts"],
     "twitch_cookies": "",  # navigateur dont on réutilise la connexion Twitch (VOD abonnés)
+    "subtitles_english": False,  # traduire automatiquement les sous-titres en anglais
+    "publish_lang": "auto",  # langue des descriptions : auto (celle du clip), fr ou en
+    "profile": {},  # infos du compte pour les bios (nom, streamers clippés, jeux…)
     "access_key": "",
 }
 

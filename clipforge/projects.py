@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 from . import analysis
-from .config import PLATFORMS, PROJECTS_DIR, ensure_dirs, load_settings
+from .config import PROJECTS_DIR, ensure_dirs, load_settings
 from .ffmpeg_utils import BROWSER_CODECS, extract_frame, make_preview_proxy, probe
 
 _lock = threading.RLock()
@@ -48,7 +48,10 @@ def default_edit(settings: dict | None = None) -> dict:
             "position": "auto",
             "size": "moyen",
             "highlight": True,
+            "spoken": "auto",  # langue parlée : auto = langue de la chaîne Twitch, sinon détectée
+            "english": bool(settings.get("subtitles_english")),  # traduire en anglais
         },
+        "publish_lang": settings.get("publish_lang", "auto"),
         "watermark": {"enabled": bool(settings.get("default_watermark")), "text": settings.get("default_watermark", "")},
         "progress_bar": False,
         "normalize_audio": True,
@@ -130,6 +133,19 @@ def list_projects() -> list[dict]:
     return out
 
 
+def load_all() -> list[dict]:
+    ensure_dirs()
+    out = []
+    for d in PROJECTS_DIR.iterdir():
+        f = d / "projet.json"
+        if f.exists():
+            try:
+                out.append(json.loads(f.read_text("utf-8")))
+            except (OSError, ValueError):
+                continue
+    return out
+
+
 def summary(p: dict) -> dict:
     src = p.get("source") or {}
     return {
@@ -194,23 +210,3 @@ def finalize_source(pid: str, file_name: str, auto_layout: bool = True) -> dict:
         error=None,
     )
     return save(project)
-
-
-def describe_for_platform(project: dict, platform: str) -> dict:
-    """Propose un titre et une description avec hashtags pour la publication."""
-    p = PLATFORMS[platform]
-    title = (project["edit"].get("title", {}).get("text") or project.get("title") or "").strip()
-    channel = (project.get("origin") or {}).get("channel") or ""
-    tags = list(p["hashtags"])
-    if channel:
-        tag = "#" + re.sub(r"[^0-9A-Za-zÀ-ÿ_]", "", channel).lower()
-        if tag not in tags and len(tag) > 1:
-            tags.insert(1, tag)
-    credit = f"🎥 Clip du live de {channel} sur Twitch (twitch.tv/{channel.lower()})" if channel else "🎥 Clip Twitch"
-    if platform == "youtube":
-        text = f"{title}\n\n{credit}\n\n{' '.join(tags)}"
-    elif platform == "shorts":
-        text = f"{title} {' '.join(tags[:4])}"
-    else:
-        text = f"{title} 😂\n\n{credit}\n\n{' '.join(tags)}"
-    return {"title": title, "text": text}

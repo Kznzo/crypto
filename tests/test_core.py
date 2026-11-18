@@ -71,6 +71,14 @@ def test_caption_groups():
     assert shifted[0]["start"] == pytest.approx(0.0)
 
 
+def test_add_word_glues_pieces():
+    words = []
+    for i, w in enumerate([" c", "'est", " 44", ",000", " don", "'t", " stop", " !", " peut", "-être"]):
+        captions.add_word(words, w, i, i + 0.5)
+    assert [w["w"] for w in words] == ["c'est", "44,000", "don't", "stop!", "peut-être"]
+    assert words[0]["s"] == 0 and words[0]["e"] == 1.5
+
+
 def test_retime_segment():
     seg = {"start": 1.0, "end": 3.0, "text": "a b", "words": [{"w": "a", "s": 1.0, "e": 1.5}, {"w": "b", "s": 2.0, "e": 3.0}]}
     same_count = captions.retime_segment(seg, "x y")

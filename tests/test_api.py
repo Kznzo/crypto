@@ -32,6 +32,15 @@ def test_tablet_needs_key():
     assert tablet.get("/api/qr.svg").status_code == 403  # le QR code reste réservé au PC
 
 
+def test_bios_endpoint():
+    r = local.get("/api/bios").json()
+    assert {"profile", "stats", "bios"} <= set(r)
+    r = local.post("/api/bios", json={"profile": {"streamers": "shroud, xQc", "games": "Valorant", "lang": "en"}}).json()
+    assert r["profile"]["streamers"] == ["shroud", "xQc"]
+    assert all(len(b) <= 80 for b in r["bios"]["tiktok"])
+    assert local.get("/api/bios").json()["profile"]["streamers"] == ["shroud", "xQc"]
+
+
 def test_bad_inputs():
     assert local.post("/api/projects/url", json={"url": "pas un lien"}).status_code == 400
     r = local.post("/api/projects/url", json={"url": "https://www.twitch.tv/videos/123"})

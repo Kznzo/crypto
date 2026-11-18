@@ -49,15 +49,52 @@ def _load_model(size: str):
     return model
 
 
+LANGUAGES = {
+    "auto": "Détection automatique",
+    "en": "Anglais",
+    "fr": "Français",
+    "es": "Espagnol",
+    "de": "Allemand",
+    "it": "Italien",
+    "pt": "Portugais",
+}
+
+
+def add_word(words: list[dict], raw: str, s: float, e: float) -> None:
+    """Ajoute un mot reconnu en recollant les morceaux que Whisper sépare.
+
+    « c » + « 'est » → « c'est », « don » + « 't » → « don't », « 44 » + « ,000 » → « 44,000 »,
+    et la ponctuation seule (« ! ») va avec le mot d'avant.
+    """
+    text = raw.strip().replace("’", "'")
+    if not text:
+        return
+    glue = (
+        text[0] in "'-"
+        or (words and words[-1]["w"].endswith(("'", "-")))
+        or re.match(r"^[,.]\d", text)
+        or re.fullmatch(r"[^\w]+", text)
+    )
+    if words and glue:
+        words[-1]["w"] += text
+        words[-1]["e"] = round(e, 3)
+        return
+    words.append({"w": text, "s": round(s, 3), "e": round(e, 3)})
+
+
 def transcribe(
     src: str | Path,
     start: float,
     end: float,
     model_size: str = "small",
-    language: str | None = "fr",
+    language: str | None = "auto",
     on_progress: Callable[[float, str], None] | None = None,
+    translate_to_english: bool = False,
 ) -> dict:
-    """Transcrit l'extrait [start, end] et renvoie des segments avec le minutage de chaque mot."""
+    """Transcrit l'extrait [start, end] et renvoie des segments avec le minutage de chaque mot.
+
+    translate_to_english=True : Whisper traduit directement la voix en sous-titres anglais.
+    """
     duration = max(0.1, end - start)
     if on_progress:
         on_progress(0.02, "Extraction du son…")
@@ -78,9 +115,13 @@ def transcribe(
     if on_progress:
         on_progress(0.12, "Transcription en cours…")
     lang = None if not language or language == "auto" else language
+    task = "translate" if translate_to_english and lang != "en" else "transcribe"
+    if task == "translate" and on_progress:
+        on_progress(0.12, "Traduction en anglais…")
     segments_iter, info = model.transcribe(
         audio,
         language=lang,
+        task=task,
         word_timestamps=True,
         vad_filter=True,
         beam_size=5,
@@ -90,16 +131,7 @@ def transcribe(
     for seg in segments_iter:
         words: list[dict] = []
         for w in seg.words or []:
-            text = w.word.strip().replace("’", "'")
-            if not text:
-                continue
-            item = {"w": text, "s": round(start + w.start, 3), "e": round(start + w.end, 3)}
-            # Whisper coupe souvent « c'est » en « c » + « 'est » : on recolle.
-            if words and (text[0] in "'-" or words[-1]["w"].endswith(("'", "-"))):
-                words[-1]["w"] += text
-                words[-1]["e"] = item["e"]
-                continue
-            words.append(item)
+            add_word(words, w.word, start + w.start, start + w.end)
         if not words:
             continue
         segments.append({
@@ -109,13 +141,50 @@ def transcribe(
             "words": words,
         })
         if on_progress:
-            on_progress(0.12 + 0.86 * min(1.0, seg.end / duration), "Transcription en cours…")
+            msg = "Traduction en anglais…" if task == "translate" else "Transcription en cours…"
+            on_progress(0.12 + 0.86 * min(1.0, seg.end / duration), msg)
+    spoken = getattr(info, "language", None) or lang or "en"
     return {
-        "language": getattr(info, "language", lang or "fr"),
+        "language": "en" if task == "translate" else spoken,  # langue du texte des sous-titres
+        "spoken": spoken,  # langue parlée dans le clip
+        "translated": task == "translate",
         "range": [round(start, 3), round(end, 3)],
         "model": model_size,
         "segments": segments,
     }
+
+
+def _srt_time(t: float) -> str:
+    ms = int(round(max(0.0, t) * 1000))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def build_srt(transcript: dict | None, clip_start: float, clip_end: float, max_chars: int = 42) -> str:
+    """Fichier de sous-titres .srt (pour YouTube : sous-titres activables et meilleur référencement)."""
+    if not transcript:
+        return ""
+    cues: list[tuple[float, float, str]] = []
+    for seg in transcript.get("segments", []):
+        line: list[dict] = []
+        for w in seg.get("words", []):
+            if w["e"] <= clip_start or w["s"] >= clip_end:
+                continue
+            if line and len(" ".join(x["w"] for x in line + [w])) > max_chars:
+                cues.append((line[0]["s"], line[-1]["e"], " ".join(x["w"] for x in line)))
+                line = []
+            line.append(w)
+        if line:
+            cues.append((line[0]["s"], line[-1]["e"], " ".join(x["w"] for x in line)))
+    out = []
+    for i, (s, e, text) in enumerate(cues, 1):
+        s, e = max(0.0, s - clip_start), min(clip_end, e) - clip_start
+        if e - s < 0.3:
+            e = s + 0.3
+        out.append(f"{i}\n{_srt_time(s)} --> {_srt_time(e)}\n{text}\n")
+    return "\n".join(out)
 
 
 def retime_segment(segment: dict, new_text: str) -> dict:

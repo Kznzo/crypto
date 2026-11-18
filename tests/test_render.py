@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from clipforge import projects, render
+from clipforge import captions, projects, render, social
 from clipforge.config import load_settings
 from clipforge.ffmpeg_utils import ffmpeg_path, probe, run
 
@@ -50,6 +50,14 @@ def test_render_youtube(sample_project):
 
 def test_description_has_hashtags(sample_project):
     p = projects.load(sample_project["id"])
-    desc = projects.describe_for_platform(p, "tiktok")
-    assert "#testchaine" in desc["text"]
-    assert "#twitch" in desc["text"]
+    texts = social.publish_texts(p, "en")
+    tiktok = texts["platforms"]["tiktok"]["text"]
+    assert "#testchaine" in tiktok and "#twitchclips" in tiktok
+    assert texts["platforms"]["shorts"]["hashtags"][0]["tag"] == "#shorts"
+
+
+def test_srt(sample_project):
+    p = projects.load(sample_project["id"])
+    srt = captions.build_srt(p["transcript"], 0, 4)
+    assert srt.startswith("1\n00:00:00,300 --> ")
+    assert "incroyable" in srt

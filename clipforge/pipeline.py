@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from . import analysis, captions, projects, render, twitch
+from . import analysis, captions, projects, render, social, twitch
 from .config import PLATFORMS, load_settings
 from .jobs import Job, manager
 
@@ -115,8 +115,18 @@ def start_transcribe(pid: str) -> Job:
         def prog(frac: float, msg: str) -> None:
             job.set(frac, msg)
 
+        caps = e.get("captions", {})
+        spoken = caps.get("spoken") or "auto"
+        if spoken == "auto":
+            # Twitch indique la langue de la chaîne : plus fiable que deviner sur 20 secondes de son.
+            # Sinon, langue par défaut des réglages, sinon détection par l'IA.
+            twitch_lang = str((p.get("origin") or {}).get("language") or "").lower()[:2]
+            if twitch_lang in captions.LANGUAGES:
+                spoken = twitch_lang
+            else:
+                spoken = settings.get("language", "auto")
         transcript = captions.transcribe(src, start, end, settings.get("whisper_model", "small"),
-                                         settings.get("language", "fr"), prog)
+                                         spoken, prog, translate_to_english=bool(caps.get("english")))
 
         def apply(proj: dict) -> None:
             proj["transcript"] = transcript
@@ -124,7 +134,8 @@ def start_transcribe(pid: str) -> Job:
 
         projects.mutate(pid, apply)
         n = sum(len(s["words"]) for s in transcript["segments"])
-        job.set(1.0, f"{n} mots reconnus")
+        lang = captions.LANGUAGES.get(transcript["language"], transcript["language"]).lower()
+        job.set(1.0, f"{n} mots reconnus ({'traduits en anglais' if transcript.get('translated') else lang})")
 
     return manager.submit(pid, "sous-titres", "Sous-titres automatiques (IA)", work, queue="calcul")
 
@@ -168,6 +179,15 @@ def _start_one_render(pid: str, platform: str) -> Job:
             on_progress=prog, cancel_check=lambda: job.cancel_requested,
         )
         start, end = render.clip_bounds(project["edit"], project["source"], platform)
+        # Textes de publication (et sous-titres .srt pour YouTube) rangés à côté de la vidéo.
+        try:
+            texts = social.publish_texts(project, project["edit"].get("publish_lang", "auto"))
+            (out.parent / f"{platform}.txt").write_text(social.publish_txt(texts, platform), "utf-8")
+            if platform in ("youtube", "shorts") and project.get("transcript"):
+                srt = captions.build_srt(project["transcript"], start, end)
+                (out.parent / f"{platform}.srt").write_text(srt, "utf-8")
+        except OSError:
+            pass
         mark("fini", file=out.name, size=out.stat().st_size, finished=time.time(),
              duration=round(end - start, 2), seconds=round(time.time() - t0, 1), job_id=job.id)
         job.set(1.0, "Vidéo prête")

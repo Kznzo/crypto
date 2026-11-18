@@ -21,6 +21,9 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
   - *Vidéo entière sur fond flou*
   - *Plein écran vertical* recadré sur les personnes (IRL, Just Chatting)
 - 💬 **Sous-titres animés mot par mot** générés par IA à partir de la voix (5 styles, corrigeables à la main)
+  - clips du **Twitch anglais** : sous-titres en anglais (la langue est reprise de la chaîne Twitch)
+  - option **« Sous-titres en anglais »** : un clip en français (ou autre) est traduit en anglais
+  - fichier **.srt** pour YouTube (sous-titres activables + meilleur référencement)
 - 🔥 **Moments forts** : sur une longue vidéo, l'appli repère les passages où ça crie, rit ou s'emballe
 - ✍️ **Titre accrocheur** en bandeau, **pseudo du streamer** (crédit), **barre de progression**
 - 🔊 **Son égalisé** au niveau conseillé par les réseaux, fondus au début et à la fin
@@ -35,7 +38,16 @@ Tout se passe en local : tes vidéos ne sont envoyées sur aucun serveur.
 | YouTube Shorts | 1080 × 1920 | 3 min (coupé automatiquement) |
 | YouTube | 1920 × 1080 | illimitée |
 
-Pour chaque vidéo, l'appli propose une **description avec hashtags** à copier-coller.
+**Textes pour publier** (onglet Exporter), en anglais ou en français selon le clip :
+- **TikTok / Reels** : légende avec accroche, crédit du streamer, appel à s'abonner et 5 hashtags
+- **Shorts** : titre + description, `#shorts` et 3 hashtags (ceux affichés au-dessus du titre)
+- **YouTube** : titre (100 caractères max), description, hashtags et **tags** pour YouTube Studio
+- Hashtags choisis dans cet ordre : le **streamer** (ses fans le cherchent), le **jeu** (sa communauté), un tag **de niche**, puis des tags **larges** ; touche un hashtag pour voir pourquoi il est là. Bouton « Autre version » pour varier.
+- Les textes sont aussi enregistrés dans un fichier `.txt` à côté de chaque vidéo.
+
+**Bios de profil** (bouton « Bios » en haut) : propositions de bio **TikTok** (80 caractères), **Instagram** (150) et de description de **chaîne YouTube**, hashtags et mots-clés pour ton compte. Elles sont pré-remplies avec les streamers et les jeux que tu clippes le plus (tes stats ClipForge).
+
+> Les statistiques internes de TikTok, Instagram et YouTube ne sont pas publiques : les propositions s'appuient sur les règles connues des plateformes (nombre de hashtags utiles, limites de caractères) et sur ta niche, pas sur des chiffres de tendances en direct.
 
 **Mode 100 % automatique** : coche-le sur l'accueil, colle un lien… et récupère directement les vidéos dans tous les formats choisis.
 
@@ -131,7 +143,8 @@ clipforge/
   pipeline.py     enchaînement import → analyse → sous-titres → exports
   twitch.py       clips, top clips d'une chaîne, passages de VOD (yt-dlp + HLS)
   analysis.py     détection de facecam (YuNet), mise en page auto, moments forts
-  captions.py     transcription (faster-whisper) et découpage en blocs de mots
+  captions.py     transcription / traduction en anglais (faster-whisper), blocs de mots, .srt
+  social.py       descriptions, hashtags, tags YouTube, bios de profil, stats de la bibliothèque
   overlays.py     rendu des textes (titre, sous-titres, pseudo) en images transparentes
   render.py       graphe de filtres FFmpeg et encodage par plateforme
   static/         interface (HTML/CSS/JS sans dépendance, tactile)

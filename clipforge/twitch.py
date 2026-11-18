@@ -86,6 +86,7 @@ def _base_opts(on_progress: Callable[[float, str], None] | None) -> dict:
 
 def _meta(info: dict) -> dict:
     channel = info.get("creator") or info.get("channel") or info.get("uploader") or ""
+    categories = info.get("categories") or []
     return {
         "title": (info.get("title") or "Clip").strip(),
         "channel": channel,
@@ -93,7 +94,39 @@ def _meta(info: dict) -> dict:
         "url": info.get("webpage_url") or info.get("original_url"),
         "views": info.get("view_count"),
         "thumbnail": info.get("thumbnail"),
+        "game": categories[0] if categories else None,
+        "language": (info.get("language") or "").lower()[:2] or None,
     }
+
+
+GQL_URL = "https://gql.twitch.tv/gql"
+GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"  # identifiant public du site twitch.tv
+
+
+def _twitch_extra(ydl, url: str) -> dict:
+    """Langue et jeu depuis l'API publique de Twitch (au mieux : on ignore toute erreur)."""
+    import json
+
+    from yt_dlp.networking import Request
+
+    clip = re.search(r"(?:clips\.twitch\.tv/|/clip/)([A-Za-z0-9_-]+)", url)
+    video = re.search(r"/videos?/(\d+)", url)
+    if clip:
+        query = 'query{clip(slug:"%s"){language game{name}}}' % clip.group(1)
+    elif video:
+        query = 'query{video(id:"%s"){game{name} owner{broadcastSettings{language}}}}' % video.group(1)
+    else:
+        return {}
+    try:
+        req = Request(GQL_URL, data=json.dumps({"query": query}).encode(),
+                      headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"})
+        data = json.loads(ydl.urlopen(req).read().decode("utf-8")).get("data") or {}
+    except Exception:
+        return {}
+    node = data.get("clip") or data.get("video") or {}
+    lang = node.get("language") or ((node.get("owner") or {}).get("broadcastSettings") or {}).get("language")
+    game = (node.get("game") or {}).get("name")
+    return {k: v for k, v in {"language": (lang or "").lower()[:2] or None, "game": game}.items() if v}
 
 
 COOKIE_BROWSERS = ("firefox", "chrome", "edge", "brave", "opera", "vivaldi", "chromium", "safari")
@@ -124,10 +157,13 @@ def download_clip(
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
+            extra = _twitch_extra(ydl, url)
     except Exception as exc:
         raise DownloadError(f"Téléchargement impossible : {_short_error(exc)}") from exc
     file = _find_source(dest_dir)
-    return file, _meta(info)
+    meta = _meta(info)
+    meta.update({k: v for k, v in extra.items() if not meta.get(k)})
+    return file, meta
 
 
 def parse_media_playlist(text: str, base_url: str) -> tuple[str | None, list[tuple[float, float, str]]]:
@@ -188,6 +224,7 @@ def download_section(
             playlist_url = fmt.get("url")
             if not playlist_url or "m3u8" not in (fmt.get("protocol") or "") and ".m3u8" not in playlist_url:
                 raise DownloadError("Format de VOD inattendu.")
+            extra = _twitch_extra(ydl, url)
             text = ydl.urlopen(playlist_url).read().decode("utf-8", "replace")
             init, segments = parse_media_playlist(text, playlist_url)
             wanted = [s for s in segments if s[1] > start - 0.5 and s[0] < end + 0.5]
@@ -232,6 +269,7 @@ def download_section(
             raise DownloadError("Impossible d'assembler le passage de la VOD.")
     raw.unlink(missing_ok=True)
     meta = _meta(info)
+    meta.update({k: v for k, v in extra.items() if not meta.get(k)})
     meta["vod_range"] = [start, end]
     return final.name, meta
 

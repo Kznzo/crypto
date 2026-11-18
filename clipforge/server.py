@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, captions, pipeline, projects, twitch
+from . import __version__, captions, pipeline, projects, render, social, twitch
 from .analysis import clamp_rect
 from .config import CAPTION_STYLES, FONTS_DIR, PLATFORMS, STATIC_DIR, TITLE_STYLES, load_settings, save_settings
 from .ffmpeg_utils import available_hw_encoder
@@ -147,6 +147,7 @@ def info(request: Request):
         "caption_styles": CAPTION_STYLES,
         "title_styles": TITLE_STYLES,
         "font_metrics": _font_metrics(),
+        "languages": captions.LANGUAGES,
         "whisper": captions.whisper_available(),
         "gpu_encoder": _hw["encoder"],
         "gpu_checked": _hw["checked"],
@@ -189,6 +190,11 @@ async def put_settings(request: Request):
         data["default_formats"] = [f for f in data["default_formats"] if f in PLATFORMS]
     if data.get("twitch_cookies") not in (None, "", *twitch.COOKIE_BROWSERS):
         raise HTTPException(400, "Navigateur inconnu")
+    if data.get("language") not in (None, *captions.LANGUAGES):
+        raise HTTPException(400, "Langue inconnue")
+    if data.get("publish_lang") not in (None, "auto", "fr", "en"):
+        raise HTTPException(400, "Langue inconnue")
+    data.pop("profile", None)  # modifié via /api/bios
     s = save_settings(data)
     s.pop("access_key", None)
     return s
@@ -268,13 +274,81 @@ async def create_from_upload(
 def get_project(pid: str):
     p = _load_or_404(pid)
     p["jobs"] = manager.list(pid)
-    p["descriptions"] = {k: projects.describe_for_platform(p, k) for k in PLATFORMS} if p.get("source") else {}
     return p
+
+
+@app.get("/api/projects/{pid}/publish")
+def publish_texts(pid: str, lang: str = "auto", variant: int = 0):
+    """Titres, descriptions et hashtags à coller sur chaque plateforme."""
+    p = _load_or_404(pid)
+    if lang == "auto":
+        lang = p["edit"].get("publish_lang", "auto")
+    return social.publish_texts(p, lang, max(0, variant), load_settings().get("profile"))
+
+
+@app.get("/api/projects/{pid}/subtitles.srt")
+def subtitles_srt(pid: str, platform: str = "youtube"):
+    p = _load_or_404(pid)
+    if not p.get("transcript") or not p.get("source") or platform not in PLATFORMS:
+        raise HTTPException(404, "Pas encore de sous-titres : génère-les d'abord.")
+    start, end = render.clip_bounds(p["edit"], p["source"], platform)
+    srt = captions.build_srt(p["transcript"], start, end)
+    lang = p["transcript"].get("language", "en")
+    name = f"{_safe_name(p.get('title') or 'clip')}_{platform}.{lang}.srt"
+    return Response(srt, media_type="application/x-subrip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+# ---------------------------------------------------------------------------
+# Bios de profil & statistiques
+# ---------------------------------------------------------------------------
+
+def _suggested_profile(stats: dict) -> dict:
+    langs = [lang for lang, _ in stats["languages"]]
+    return {
+        "account_name": "",
+        "streamers": [c for c, _ in stats["channels"][:3]],
+        "games": [g for g, _ in stats["games"][:2]],
+        "lang": "fr" if langs and langs[0] == "fr" else "en",
+        "link": "",
+        "frequency": "",
+    }
+
+
+@app.get("/api/bios")
+def get_bios():
+    stats = social.library_stats(projects.load_all())
+    profile = load_settings().get("profile") or {}
+    if not profile:
+        profile = _suggested_profile(stats)
+    return {"profile": profile, "stats": stats, "bios": social.generate_bios(profile)}
+
+
+@app.post("/api/bios")
+async def post_bios(request: Request):
+    data = await request.json()
+    raw = data.get("profile") or {}
+
+    def as_list(v) -> list[str]:
+        if isinstance(v, str):
+            v = v.split(",")
+        return [str(x).strip()[:40] for x in (v or []) if str(x).strip()][:6]
+
+    profile = {
+        "account_name": str(raw.get("account_name") or "")[:40],
+        "streamers": as_list(raw.get("streamers")),
+        "games": as_list(raw.get("games")),
+        "lang": "fr" if raw.get("lang") == "fr" else "en",
+        "link": str(raw.get("link") or "")[:100],
+        "frequency": str(raw.get("frequency") or "")[:30],
+    }
+    save_settings({"profile": profile})
+    return {"profile": profile, "bios": social.generate_bios(profile)}
 
 
 EDIT_KEYS = {
     "start", "end", "layout", "split_ratio", "cam", "game", "crop", "main", "blur_zoom", "blur_offset",
-    "title", "captions", "watermark", "progress_bar", "normalize_audio", "fade",
+    "title", "captions", "watermark", "progress_bar", "normalize_audio", "fade", "publish_lang",
 }
 
 
@@ -287,8 +361,15 @@ def _sanitize_edit(current: dict, incoming: dict, source: dict) -> dict:
             edit[key] = clamp_rect(value)
         elif key in ("title", "captions", "watermark"):
             edit[key] = {**edit.get(key, {}), **{k: v for k, v in (value or {}).items()}}
+            if key == "captions":
+                if edit[key].get("spoken") not in captions.LANGUAGES:
+                    edit[key]["spoken"] = "auto"
+                edit[key]["english"] = bool(edit[key].get("english"))
         elif key == "layout":
             if value in ("split", "blur", "crop"):
+                edit[key] = value
+        elif key == "publish_lang":
+            if value in ("auto", "fr", "en"):
                 edit[key] = value
         elif key == "split_ratio":
             edit[key] = min(0.6, max(0.2, float(value)))
