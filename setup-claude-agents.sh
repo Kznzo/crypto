@@ -139,6 +139,10 @@ else
 fi
 if [ -d "$LF_VAULT" ]; then
   TODO+=("Obsidian (https://obsidian.md): Open folder as vault > '$LF_VAULT' > Trust author and enable plugins")
+  # Link the project notes (obsidian/Egg Run) into the vault, so a git pull updates them there too.
+  if [ -d "$(pwd)/obsidian/Egg Run" ] && [ ! -e "$LF_VAULT/Egg Run" ]; then
+    ln -s "$(pwd)/obsidian/Egg Run" "$LF_VAULT/Egg Run" && ok "Egg Run notes linked into the vault"
+  fi
 fi
 
 # --- 7. Roblox Studio MCP server --------------------------------------------
