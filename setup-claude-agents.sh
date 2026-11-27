@@ -114,7 +114,7 @@ if ! command -v claude >/dev/null 2>&1; then
 elif claude mcp list 2>/dev/null | grep -qi "roblox"; then
   ok "Roblox Studio is already connected to Claude Code"
 elif [ -x "$ROBLOX_MCP_MAC" ]; then
-  if claude mcp add --scope user Roblox_Studio -- "$ROBLOX_MCP_MAC" >/dev/null 2>&1; then
+  if claude mcp add --scope user --transport stdio Roblox_Studio -- "$ROBLOX_MCP_MAC" >/dev/null 2>&1; then
     ok "Roblox Studio connected to Claude Code"
   else
     warn "could not add the Roblox Studio server"
