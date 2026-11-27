@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 
 BLENDER_MCP_SRC="git+https://projects.blender.org/lab/blender_mcp.git#subdirectory=mcp"
 ROBLOX_MCP_MAC="/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP"
+LIHFOLK_ZIP_URL="https://github.com/lihfolk-cy/v2-vault/releases/download/v2.5.0/LIH.FOLK.VAULT.V2.FULL.zip"
 ADDON_LINK="https://projects.blender.org/lab/blender_mcp/releases/download/v1.0.0/mcp-1.0.0.zip?repository=https%3A%2F%2Flab.blender.org%2F&blender_version_min=5.1.0"
 TODO=()
 
@@ -16,7 +17,7 @@ echo
 echo "  ===  Claude agents for Blender and Roblox Studio: setup  ==="
 
 # --- 1. uv (starts the Blender MCP server) ---------------------------------
-step "1/5 uv"
+step "1/6 uv"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 if command -v uvx >/dev/null 2>&1; then
   ok "uv is installed"
@@ -29,7 +30,7 @@ else
 fi
 
 # --- 2. git (needed to download the Blender MCP server) ---------------------
-step "2/5 git"
+step "2/6 git"
 if git --version >/dev/null 2>&1; then
   ok "git is installed"
 else
@@ -38,7 +39,7 @@ else
 fi
 
 # --- 3. Download the Blender MCP server now, so Claude starts it quickly ----
-step "3/5 Blender MCP server"
+step "3/6 Blender MCP server"
 if command -v uvx >/dev/null 2>&1 && git --version >/dev/null 2>&1; then
   echo "  Downloading the official Blender MCP server (first time only)..."
   if uvx --from "$BLENDER_MCP_SRC" blender-mcp --help >/dev/null 2>&1; then
@@ -52,22 +53,62 @@ else
 fi
 
 # --- 4. blender-skills plugin for Claude Code -------------------------------
-step "4/5 blender-skills plugin"
-if command -v claude >/dev/null 2>&1; then
-  claude plugin marketplace add ra100/blender-claude-plugin >/dev/null 2>&1 || true
-  if claude plugin install blender-skills@blender-claude-marketplace >/dev/null 2>&1 \
-     || claude plugin list 2>/dev/null | grep -q "blender-skills@blender-claude-marketplace"; then
-    ok "blender-skills plugin installed"
+step "4/6 Claude Code plugins (blender-skills, LihFolk)"
+install_plugin() { # $1 = marketplace repo, $2 = plugin@marketplace
+  claude plugin marketplace add "$1" >/dev/null 2>&1 || true
+  if claude plugin install "$2" >/dev/null 2>&1 || claude plugin list 2>/dev/null | grep -q "$2"; then
+    ok "$2 installed"
   else
-    warn "plugin install failed"
-    TODO+=("In Claude Code, accept the blender-skills plugin when it's offered")
+    warn "$2 install failed"
+    TODO+=("In Claude Code, accept the $2 plugin when it's offered")
   fi
+}
+if command -v claude >/dev/null 2>&1; then
+  install_plugin ra100/blender-claude-plugin blender-skills@blender-claude-marketplace
+  install_plugin lihfolk-cy/v2-vault lihfolk@lihfolk
 else
-  warn "the 'claude' command isn't installed. Using the Claude desktop app? Accept the plugin when Claude Code offers it."
+  warn "the 'claude' command isn't installed. Using the Claude desktop app? Accept the plugins when Claude Code offers them."
 fi
 
-# --- 5. Roblox Studio MCP server --------------------------------------------
-step "5/5 Roblox Studio"
+# --- 5. LihFolk vault (Obsidian) + asset pack -------------------------------
+step "5/6 LihFolk vault + asset pack"
+LF_HOME="${LIHFOLK_HOME:-$HOME}"
+LF_ASSETS="$LF_HOME/LihFolk-Assets"
+LF_VAULT="$LF_HOME/LihFolk Vault V2"
+if [ -f "$LF_ASSETS/INDEX.md" ] && [ -d "$LF_VAULT" ]; then
+  ok "already installed: $LF_ASSETS and $LF_VAULT"
+else
+  printf "  Download the LihFolk vault + asset pack now (1.4 GB, free)? [Y/n] "
+  read -r ans || ans=""
+  case "$ans" in
+    [nN]*) warn "skipped. Run this script again any time to download it." ;;
+    *)
+      LF_ZIP="$LF_HOME/LihFolk-download.zip"; LF_TMP="$LF_HOME/LihFolk-temp"
+      echo "  Downloading (this can take a while)..."
+      if curl -L --fail --progress-bar -o "$LF_ZIP" "$LIHFOLK_ZIP_URL"; then
+        echo "  Unzipping..."
+        rm -rf "$LF_TMP"; mkdir -p "$LF_TMP"
+        if unzip -q "$LF_ZIP" -d "$LF_TMP" 2>/dev/null || python3 -m zipfile -e "$LF_ZIP" "$LF_TMP"; then
+          [ -d "$LF_ASSETS" ] || mv "$LF_TMP/LihFolk Asset Pack" "$LF_ASSETS"
+          [ -d "$LF_VAULT" ] || mv "$LF_TMP/LihFolk Vault V2/LihFolk Vault V2" "$LF_VAULT"
+          rm -rf "$LF_TMP" "$LF_ZIP"
+          ok "asset pack: $LF_ASSETS"
+          ok "Obsidian vault: $LF_VAULT"
+        else
+          warn "unzip failed"; TODO+=("Unzip $LF_ZIP by hand")
+        fi
+      else
+        warn "download failed"; rm -f "$LF_ZIP"; TODO+=("Run this script again to download the LihFolk vault")
+      fi
+      ;;
+  esac
+fi
+if [ -d "$LF_VAULT" ]; then
+  TODO+=("Obsidian (https://obsidian.md): Open folder as vault > '$LF_VAULT' > Trust author and enable plugins")
+fi
+
+# --- 6. Roblox Studio MCP server --------------------------------------------
+step "6/6 Roblox Studio"
 if ! command -v claude >/dev/null 2>&1; then
   warn "skipped (no 'claude' command). In Studio use Assistant > ... > Manage MCP Servers > Quick connect > Claude Code."
 elif claude mcp list 2>/dev/null | grep -qi "roblox"; then
@@ -92,5 +133,5 @@ echo "  - Blender 5.1+: install the 'MCP' add-on. Drag this link into Blender tw
 echo "      $ADDON_LINK"
 echo "    then Edit > Preferences > System > Network > Allow Online Access."
 echo "  - Roblox Studio: Assistant > ... > Manage MCP Servers > turn on 'Enable Studio as MCP server'."
-echo "  - Open Claude Code in this folder, say yes to 'trust this folder', then type /test-blender and /test-roblox."
+echo "  - Open Claude Code in this folder, say yes to 'trust this folder', then type /test-blender, /test-roblox and /test-pipeline."
 echo

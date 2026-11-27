@@ -6,10 +6,17 @@
         "source": "github",
         "repo": "ra100/blender-claude-plugin"
       }
+    },
+    "lihfolk": {
+      "source": {
+        "source": "github",
+        "repo": "lihfolk-cy/v2-vault"
+      }
     }
   },
   "enabledPlugins": {
-    "blender-skills@blender-claude-marketplace": true
+    "blender-skills@blender-claude-marketplace": true,
+    "lihfolk@lihfolk": true
   },
   "permissions": {
     "allow": [

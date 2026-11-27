@@ -20,6 +20,42 @@ Every call to the built-in server needs a `studio_id`.
 
 **Old plugin fallback:** if the only tools available are `run_code`, `insert_model`, `get_console_output`, `start_stop_play`, `run_script_in_play_mode` and `get_studio_mode`, the user is on the older `studio-rust-mcp-server` plugin. Work the same way: `run_code` takes the place of `execute_luau` and script edits, and there is no `studio_id`. Suggest switching to the built-in server.
 
+## Expert knowledge: the LihFolk plugin
+
+The `lihfolk` plugin (LihFolk Vault V2) gives you 1,300+ Roblox notes, drop-in Luau systems and specialist skills. Load the matching skill with the Skill tool **before** you build. They appear as `lihfolk:<name>`.
+
+| Task | Skill |
+|---|---|
+| Any non-trivial Roblox question: limits, APIs, policy, "check the vault" | `lihfolk` (the knowledge router) |
+| A new game system (or check `lihfolk-systems` first for a ready-made one) | `roblox-system-builder` |
+| Ready-made, tested systems: currency, shop, inventory, quests, rebirth, egg hatch, daily rewards, codes, leaderboard, receipts, player data | `lihfolk-systems` |
+| RemoteEvents and RemoteFunctions | `roblox-secure-remotes` |
+| Saving player data | `roblox-datastore-safety` |
+| Purchases, game passes, paid random items | `roblox-monetization-compliance` |
+| Exploit review before shipping | `roblox-anti-exploit-review` |
+| UI and menus | `roblox-ui-builder`, `lihfolk-ui` (and `lihfolk-figma` for Figma designs) |
+| Maps and levels | `lihfolk-worldbuilding` |
+| Combat VFX, sound effects | `lihfolk-vfx`, `lihfolk-sfx` |
+| Tutorials and onboarding | `lihfolk-tutorial` |
+| Bugs, lag | `roblox-debugging`, `roblox-performance-audit` |
+| Importing models (from Blender or the asset pack) | `roblox-asset-import`, `lihfolk-assets` |
+| Trend or viral game ideas | `roblox-trend-game` |
+| Scoring a finished system or asset (only when asked) | `quality-score` |
+
+**Look up facts yourself.**
+- You can't start other agents, so skip the router's advice to use `lihfolk-lookup`. Follow its "Looking it up yourself" steps instead: `python "<VAULT>/_tools/vault.py" "<task in plain words>"`. Use `python3` or `py` if `python` isn't found.
+- Always look up limits, quotas, prices, policy and anything changed in 2025-2026, because your memory is out of date there.
+- For player data, purchases, remotes and security, read the note's `Common mistakes` and `Checklist` sections. Cite the note titles you used.
+
+**Let the code checker see your scripts.** The plugin's hook automatically checks every `.luau` file Claude writes and reports Roblox mistakes such as deprecated APIs, unvalidated remotes, unsafe DataStore code and client-owned currency. Your edits through Studio's MCP tools don't pass through it, so for any new or substantially changed script:
+1. Write the source first to `roblox-src/<Service>/<Path>.luau` in the project. For example, `ServerScriptService.Shop.ShopServer` goes to `roblox-src/ServerScriptService/Shop/ShopServer.luau`.
+2. Fix every finding the hook reports. Only add `-- lihfolk-ignore: <id> <reason>` after you've confirmed it's a false positive.
+3. Apply the same source to Studio with `multi_edit`.
+
+This also leaves the user a local copy of the game's code.
+
+**The asset pack** lives in `~/LihFolk-Assets`, or wherever `LIHFOLK_ASSETS` points. The `lihfolk-assets` skill finds assets through its catalogues. Studio's MCP tools can't import local files, so tell the user to import models with **Import 3D**, using the importer settings from `roblox-asset-import`. Uploading textures, animations and sounds is also the user's step. Never invent asset IDs: write `rbxassetid://REPLACE_ME` and list what to upload.
+
 ## If the tools are missing or the connection fails
 
 Stop and tell the user exactly what to check. Don't guess.

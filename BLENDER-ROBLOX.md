@@ -5,7 +5,7 @@ This folder sets Claude Code up to work live in **Blender** and **Roblox Studio*
 | File | What it does |
 |---|---|
 | `.mcp.json` | Connects Claude Code to Blender through the **official Blender Lab MCP server** |
-| `.claude/settings.json` | Installs the [blender-skills plugin](https://github.com/ra100/blender-claude-plugin), switches on the Blender server, and lets Claude use every Blender and Roblox Studio tool without asking you each time |
+| `.claude/settings.json` | Installs the [blender-skills](https://github.com/ra100/blender-claude-plugin) and [LihFolk](https://vault.urmad.lol) plugins, switches on the Blender server, and lets Claude use every Blender and Roblox Studio tool without asking you each time |
 | `.claude/agents/blender.md` | The **blender** agent, a Blender specialist (modelling, nodes, materials, rigging, physics, rendering, export for Roblox) |
 | `.claude/agents/roblox.md` | The **roblox** agent, a Roblox Studio specialist (building, Luau, UI, playtesting, assets) |
 | `.claude/commands/test-blender.md`, `test-roblox.md`, `test-pipeline.md` | The `/test-blender`, `/test-roblox` and `/test-pipeline` tests |
@@ -19,7 +19,7 @@ This folder sets Claude Code up to work live in **Blender** and **Roblox Studio*
 ## Quick start (about 10 minutes)
 
 1. **Get the files:** in this project's folder, run `git fetch origin claude/gracious-goodall-6624rv` and then `git checkout claude/gracious-goodall-6624rv`.
-2. **Double-click the setup script:** `Setup-Claude-Agents.bat` on Windows, or `Setup-Claude-Agents.command` on Mac. If it installs uv or git, it asks you to run it once more.
+2. **Double-click the setup script:** `Setup-Claude-Agents.bat` on Windows, or `Setup-Claude-Agents.command` on Mac. If it installs uv or git, it asks you to run it once more. When it asks to download the **LihFolk vault + asset pack** (1.4 GB), say **Y**.
 3. **Blender 5.1+:** install the **MCP** add-on and allow online access (step 2 below).
 4. **Roblox Studio:** turn on **Enable Studio as MCP server** (step 3 below). The setup script connects it to Claude Code. Run the script again if you turned this on afterwards.
 5. **Open Blender and Roblox Studio** with a place open, then open Claude Code in this folder. Say **yes** to "trust this folder" and accept the **blender-skills** plugin if it's offered.
@@ -30,6 +30,23 @@ This folder sets Claude Code up to work live in **Blender** and **Roblox Studio*
    - The roblox test commands don't save your place, so you can close it without saving to undo everything.
 
 If something fails, the detailed steps and troubleshooting are below.
+
+---
+
+## LihFolk Vault (Roblox knowledge, code and assets)
+
+[LihFolk Vault V2](https://vault.urmad.lol) is free and needs no account. I checked the plugin before adding it: no hidden downloads or network calls, no backdoors in its Luau code, and its Blender helpers only build, check and export. It has three parts:
+
+| Part | Where it goes | What it does |
+|---|---|---|
+| **Claude Code plugin** (22 skills) | Installed automatically: the setup script does it, or Claude Code offers it when you trust the folder | 1,300+ Roblox notes the agents search before building, plus ready-made Luau systems: currency, shop, inventory, quests, rebirth, egg hatch, daily rewards, codes, leaderboards, receipts. It also brings VFX, SFX and UI kits, and a **code checker** that automatically flags Roblox mistakes in every script Claude writes. |
+| **Obsidian vault** | `~/LihFolk Vault V2` (setup script step 5) | The same notes for **you** to read. In [Obsidian](https://obsidian.md), choose **Open folder as vault**, pick that folder, then choose **Trust author and enable plugins**. That only enables a small graph-colouring plugin, which I checked. |
+| **Asset pack** | `~/LihFolk-Assets` (setup script step 5) | Original models, kits, materials, skies, R15 animations and VFX. The agents find assets through its catalogues. You import models in Studio with **Import 3D**, at Scale Unit **Studs**. |
+
+How the agents use it:
+- **roblox agent:** it searches the vault before building and uses LihFolk's ready-made systems instead of writing them from scratch. It drafts scripts in `roblox-src/` so the code checker can review them before they go into Studio, which also gives you a local copy of your game's code.
+- **blender agent:** it uses LihFolk's Roblox modelling skill (budgets, quality gate, tested GLB export). Roblox models use **1 Blender unit = 1 stud**.
+- **Plugin commands:** `/lihfolk:assets <what you need>`, `/lihfolk:audit` (scan scripts for mistakes), `/lihfolk:new-system`, `/lihfolk:trend-game` and `/lihfolk:council` (independent review).
 
 ---
 

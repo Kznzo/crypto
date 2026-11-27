@@ -22,6 +22,15 @@ Before writing code in a domain, load the matching skill with the Skill tool. Th
 
 Load only the skills the current task needs, and read their `references/` files when the skill points you there. If the plugin isn't installed, carry on with your own knowledge and use `search_api_docs` to check APIs.
 
+**For anything going into Roblox, also load `lihfolk:roblox-blender-modeling`** from the LihFolk plugin. It adds:
+- Roblox triangle budgets per asset type
+- a quality gate: `lf.gate(ob, cls)` checks symmetry, alignment, floating parts and shading
+- a visual rubric: `lf.render_review(...)`
+- builders for houses, curves and creatures
+- tested exports: `lf.export_glb(ob, path)`, and `lf.export_fbx` for rigs
+
+It explains how to load its helpers with `sys.path.append(...)` inside `execute_blender_code`. I've reviewed the helpers: they only build, check, render and export. `lf.setup_scene()` changes the scene's unit system to "None", so tell the user when you call it. Use `lihfolk:roblox-asset-import` for the Studio import settings, and `lihfolk:quality-score` only when the user asks for a score.
+
 ## Tools (official Blender Lab MCP server)
 
 - **Action:** `execute_blender_code` runs Python in the live Blender. To get data back, assign a JSON-serialisable dict to a variable named `result` (for example `result = {"tris": 1200, "path": out}`). Don't rely on `print()`. Use it when no dedicated tool does the job.
@@ -73,9 +82,11 @@ Stop and tell the user exactly what to check. Don't guess.
 6. **Check your work visually.** After every meaningful change, frame the object with `jump_to_view3d_object_by_name` and take a viewport screenshot. If there's no window, render a small image instead. To render without moving the user's camera, add your own camera in your collection and make it the scene camera only for the render, then switch back. Compare it with what the user asked for and fix problems before you report back.
 7. **Respect the user's scene.** Don't delete, rename or hide objects you didn't create unless the user asked. Don't change render, unit or preference settings without saying so.
 
-## Real-world scale
+## Scale
 
-Model in meters, which is Blender's default. Apply rotation and scale before rigging, modifiers that depend on scale, or export.
+- **Roblox assets:** follow the LihFolk convention, **1 Blender unit = 1 stud**. An R15 character is about 5 units tall and a door is 7 to 8. Use the importer's Scale Unit **Studs**. Don't convert from meters: think in studs.
+- **Other work** (renders, real-world scenes): model in meters, Blender's default.
+- **Either way:** apply rotation and scale before rigging, modifiers that depend on scale, or export.
 
 ## Preparing models for Roblox
 
@@ -86,8 +97,10 @@ When a model is meant for Roblox, follow these rules and say which ones matter f
 - **Materials:** Roblox can't read Blender node trees. Bake procedural or complex materials into image textures using the recipe below (Base Color, plus Roughness and Metalness, and Normal if the material has bump detail). Roblox uses these through a `SurfaceAppearance`. Keep textures at 1024×1024 or less unless the user asks for more.
 - **Transforms and origin:** apply rotation and scale, and put each object's origin where it should pivot (a door's hinge, the bottom centre of a prop).
 - **Rigs and animation:** use an Armature with clean vertex weights (`blender-animation-rigging`), and export as FBX. For R15 avatars and clothing, follow Roblox's avatar specifications and tell the user to check the result with Studio's Avatar tools.
-- **Export:** select only the objects for Roblox. Use FBX for rigged or animated models. FBX, OBJ or glTF (.glb) all work for static meshes.
-  - These FBX settings were tested: re-importing the result gave correct sizes in meters and kept the origins.
+- **Export:** select only the objects for Roblox.
+  - Prefer GLB via `lf.export_glb(ob, path)` when the LihFolk helpers are loaded. It applies modifiers, keeps vertex colours, and writes 1 unit = 1 stud.
+  - Use FBX for rigged or animated models (`lf.export_fbx`).
+  - Without the helpers, these FBX settings were tested: re-importing the result gave correct sizes and kept the origins.
     ```python
     bpy.ops.export_scene.fbx(filepath=out, use_selection=True,
         object_types={'MESH', 'ARMATURE', 'EMPTY'}, apply_scale_options='FBX_SCALE_UNITS',
@@ -96,8 +109,8 @@ When a model is meant for Roblox, follow these rules and say which ones matter f
   - Save to a `roblox_exports/` folder next to the .blend file (`bpy.path.abspath("//roblox_exports/")`), and create it if needed.
   - Also save the baked PNG maps there as `<Object>_Color.png`, `<Object>_Roughness.png` and `<Object>_Metalness.png`, so they can go on a `SurfaceAppearance` if the importer doesn't pick them up.
   - Return the full paths in `result`.
-- **Handoff:** Roblox's MCP server can't import a local 3D file. Tell the user to import the exported file in Roblox Studio with the **3D Importer** (Import 3D), with the importer's scale unit set to **Meter**.
-  - For every part that must rotate around a point (a lid, door or wheel), report where the pivot is relative to that part's bounding-box centre. Do it in meters and in words, for example "hinge: 0.31 m toward the back, 0.10 m below centre". The importer may centre the pivot, and the `roblox` agent can then set `PivotOffset`.
+- **Handoff:** Roblox's MCP server can't import a local 3D file. Tell the user to import the exported file in Roblox Studio with the **3D Importer** (Import 3D). Set the importer's Scale Unit to **Studs** for studs-based models, or **Meter** if you modelled in meters, and say which.
+  - For every part that must rotate around a point (a lid, door or wheel), report where the pivot is relative to that part's bounding-box centre. Give it in your model's units and in words, for example "hinge: 1.1 studs toward the back, 0.4 below centre". The importer may centre the pivot, and the `roblox` agent can then set `PivotOffset`.
   - After the import, the `roblox` agent can place, configure and script the model.
 
 ## Baking materials for Roblox

@@ -7,3 +7,6 @@ data/
 *.egg-info/
 .DS_Store
 Thumbs.db
+
+# Local copies of Roblox scripts written by the roblox agent (checked by the LihFolk hook)
+roblox-src/
