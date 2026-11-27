@@ -58,7 +58,8 @@ Stop and tell the user exactly what to check. Don't guess.
 - **Models made in Blender:** the `blender` agent exports them to a `roblox_exports/` folder next to the .blend file. The user imports the file with Studio's **3D Importer** (Import 3D). After that, find the model with `search_game_tree`, then set it up:
   - position, `Anchored`, `CanCollide`
   - `CollisionFidelity` (use `Box` or `Hull` for simple props)
-  - `SurfaceAppearance` for PBR textures
+  - `SurfaceAppearance` for PBR textures, if the importer didn't apply them. The blender agent saves `<Part>_Color.png`, `<Part>_Roughness.png` and `<Part>_Metalness.png` next to the export. Try loading each with `store_image` and set the result as `ColorMap`, `RoughnessMap` and `MetalnessMap`. If Studio won't accept the result, tell the user which file goes in which slot.
+  - **pivots for moving parts** (lid, door, wheel). The importer may put a MeshPart's pivot at its centre. Set `PivotOffset` to the hinge, using the offset the blender agent reported, or work it out from the part's `Size` and its position next to the part it hinges on. Then animate with `PivotTo` or a tween of the pivot CFrame, not `Position`.
   - grouping into a Model with a `PrimaryPart`
   - any scripts it needs
 - **Generated content:** tell the user what you generated, and that generation may use their Roblox quota.

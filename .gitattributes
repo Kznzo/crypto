@@ -5,3 +5,5 @@
 *.ttf binary
 *.onnx binary
 *.png binary
+*.fbx binary
+*.blend binary

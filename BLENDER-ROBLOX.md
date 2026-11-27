@@ -8,7 +8,8 @@ This folder sets Claude Code up to work live in **Blender** and **Roblox Studio*
 | `.claude/settings.json` | Installs the [blender-skills plugin](https://github.com/ra100/blender-claude-plugin), switches on the Blender server, and lets Claude use every Blender and Roblox Studio tool without asking you each time |
 | `.claude/agents/blender.md` | The **blender** agent, a Blender specialist (modelling, nodes, materials, rigging, physics, rendering, export for Roblox) |
 | `.claude/agents/roblox.md` | The **roblox** agent, a Roblox Studio specialist (building, Luau, UI, playtesting, assets) |
-| `.claude/commands/test-blender.md`, `test-roblox.md` | The `/test-blender` and `/test-roblox` smoke tests |
+| `.claude/commands/test-blender.md`, `test-roblox.md`, `test-pipeline.md` | The `/test-blender`, `/test-roblox` and `/test-pipeline` tests |
+| `examples/treasure-chest/` | A Roblox-ready treasure chest the blender agent made during testing (FBX + baked textures + preview) |
 | `Setup-Claude-Agents.bat` (Windows), `Setup-Claude-Agents.command` (Mac) | Double-click, one-time setup: installs uv, git and the plugin, downloads the Blender server, connects Roblox Studio |
 
 > **Run Claude Code on your own computer.** Blender and Roblox Studio are desktop apps, so Claude has to run on the same machine to reach them. A cloud session on claude.ai can't. Use the **Claude desktop app → Code** tab and pick this folder, or run `claude` in a terminal inside this folder.
@@ -23,6 +24,10 @@ This folder sets Claude Code up to work live in **Blender** and **Roblox Studio*
 4. **Roblox Studio:** turn on **Enable Studio as MCP server** (step 3 below). The setup script connects it to Claude Code. Run the script again if you turned this on afterwards.
 5. **Open Blender and Roblox Studio** with a place open, then open Claude Code in this folder. Say **yes** to "trust this folder" and accept the **blender-skills** plugin if it's offered.
 6. **Test:** type `/test-blender`, then `/test-roblox`. Each one does a safe test: it builds only inside a `Claude_Test` collection or folder, checks the result, and gives you a ✅/❌ checklist.
+7. **Test the whole pipeline:**
+   - In Studio, use **Import 3D** to import `examples/treasure-chest/TreasureChest.fbx` with the scale unit set to **Meter**.
+   - Type `/test-pipeline`. The roblox agent turns it into a chest whose lid opens with **E**, and playtests it.
+   - The roblox test commands don't save your place, so you can close it without saving to undo everything.
 
 If something fails, the detailed steps and troubleshooting are below.
 
