@@ -8,12 +8,27 @@ This folder sets Claude Code up to work live in **Blender** and **Roblox Studio*
 | `.claude/settings.json` | Installs the [blender-skills plugin](https://github.com/ra100/blender-claude-plugin), switches on the Blender server, and lets Claude use every Blender and Roblox Studio tool without asking you each time |
 | `.claude/agents/blender.md` | The **blender** agent, a Blender specialist (modelling, nodes, materials, rigging, physics, rendering, export for Roblox) |
 | `.claude/agents/roblox.md` | The **roblox** agent, a Roblox Studio specialist (building, Luau, UI, playtesting, assets) |
+| `.claude/commands/test-blender.md`, `test-roblox.md` | The `/test-blender` and `/test-roblox` smoke tests |
+| `Setup-Claude-Agents.bat` (Windows), `Setup-Claude-Agents.command` (Mac) | Double-click, one-time setup: installs uv, git and the plugin, downloads the Blender server, connects Roblox Studio |
 
 > **Run Claude Code on your own computer.** Blender and Roblox Studio are desktop apps, so Claude has to run on the same machine to reach them. A cloud session on claude.ai can't. Use the **Claude desktop app → Code** tab and pick this folder, or run `claude` in a terminal inside this folder.
 
 ---
 
-## One-time setup
+## Quick start (about 10 minutes)
+
+1. **Get the files:** in this project's folder, run `git fetch origin claude/gracious-goodall-6624rv` and then `git checkout claude/gracious-goodall-6624rv`.
+2. **Double-click the setup script:** `Setup-Claude-Agents.bat` on Windows, or `Setup-Claude-Agents.command` on Mac. If it installs uv or git, it asks you to run it once more.
+3. **Blender 5.1+:** install the **MCP** add-on and allow online access (step 2 below).
+4. **Roblox Studio:** turn on **Enable Studio as MCP server** (step 3 below). The setup script connects it to Claude Code. Run the script again if you turned this on afterwards.
+5. **Open Blender and Roblox Studio** with a place open, then open Claude Code in this folder. Say **yes** to "trust this folder" and accept the **blender-skills** plugin if it's offered.
+6. **Test:** type `/test-blender`, then `/test-roblox`. Each one does a safe test: it builds only inside a `Claude_Test` collection or folder, checks the result, and gives you a ✅/❌ checklist.
+
+If something fails, the detailed steps and troubleshooting are below.
+
+---
+
+## One-time setup (detailed)
 
 ### 1. Get these files on your computer
 
@@ -116,6 +131,8 @@ The blender agent loads the right **blender-skills** guide for each job (geometr
 | No Roblox tools in `/mcp` | Check that **Enable Studio as MCP server** is on, then restart Studio **and** Claude Code. On Windows, also quit Claude from the system tray. |
 | Roblox says it can't save | Save the place once yourself (File → Save to Roblox or Save to File). After that, Claude can save it. |
 | Several Studio windows are open | That's fine. The roblox agent asks which place to work in. |
+| Mac says `Setup-Claude-Agents.command` can't be opened | Right-click it, choose **Open**, then confirm. Or run `./setup-claude-agents.sh` in Terminal. |
+| `/test-blender` or `/test-roblox` isn't found | Start Claude Code from this folder. The commands live in `.claude/commands/`. |
 
 ## Safety
 
