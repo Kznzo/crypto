@@ -5,6 +5,7 @@ This folder sets Claude Code up to work live in **Blender** and **Roblox Studio*
 | File | What it does |
 |---|---|
 | `.mcp.json` | Connects Claude Code to Blender when it's opened in this folder |
+| `.claude/settings.json` | Switches on the Blender server and lets Claude use every Blender and Roblox Studio tool without asking you each time |
 | `.claude/agents/blender.md` | The **blender** agent, a Blender specialist (modelling, materials, animation, export for Roblox) |
 | `.claude/agents/roblox.md` | The **roblox** agent, a Roblox Studio specialist (building, Luau, UI, playtesting, assets) |
 
@@ -37,7 +38,7 @@ git checkout claude/gracious-goodall-6624rv
    uvx mcp-for-blender install-addon
    ```
 3. In Blender, go to **Edit → Preferences → Add-ons** and enable **MCP for Blender**.
-4. In the 3D Viewport, press **N**, open the **MCP for Blender** tab, and click **Connect to Claude** if you see that button.
+4. In the 3D Viewport, press **N**, open the **MCP for Blender** tab, and click **Connect to MCP server** if you see that button (older versions call it **Connect to Claude**).
 
 You don't need to change any Claude config: `.mcp.json` already adds the `blender` server for this folder. Anonymous telemetry is turned off there (`DISABLE_TELEMETRY`).
 
@@ -68,7 +69,7 @@ If you installed the older `studio-rust-mcp-server` plugin earlier, disable it s
 
 Open Blender (add-on connected) and Roblox Studio (a place open). Then start Claude Code in this folder:
 
-1. When Claude Code asks whether to use the `blender` server from `.mcp.json`, approve it.
+1. When Claude Code asks whether you trust this folder, say **yes**. You only do this once. It turns on the settings in `.claude/settings.json`: the `blender` server starts automatically, and the agents stop asking before each action.
 2. Type `/mcp`. Both **blender** and **Roblox_Studio** should show as connected.
 3. Type `/agents`. You should see **blender** and **roblox**.
 
@@ -88,7 +89,7 @@ Ask in plain language. Claude hands Blender work to the blender agent and Studio
 2. You import that file in Roblox Studio with **Import 3D** (the 3D Importer), with the scale unit set to meters.
 3. The roblox agent places it, sets collisions and materials, and scripts it.
 
-Both tools ask for permission before they act. Choose "always allow" for the ones you trust.
+**No permission prompts:** `.claude/settings.json` pre-approves every Blender and Roblox Studio tool, so the agents just work. If Roblox actions still ask for permission, your Roblox server has a different name. Find its name in `/mcp`, then add `"mcp__<that name>"` to the `allow` list in that file.
 
 ---
 
@@ -104,6 +105,6 @@ Both tools ask for permission before they act. Choose "always allow" for the one
 
 ## Safety
 
-Both connections let Claude **run code inside the apps** (Python in Blender, Luau in Studio), which can change or delete your work.
+Both connections let Claude **run code inside the apps** (Python in Blender, Luau in Studio), which can change or delete your work. Prompts are turned off, so Claude won't stop to ask first.
 - Save before big changes. The blender agent saves a `.checkpoint.blend` copy first, and the roblox agent never publishes.
 - Only use these connections with projects you're okay with Claude changing.

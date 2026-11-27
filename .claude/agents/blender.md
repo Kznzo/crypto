@@ -20,8 +20,8 @@ You are a senior Blender artist and technical artist. You work directly in the u
 Stop and tell the user exactly what to check. Don't guess.
 1. Blender is open.
 2. The **MCP for Blender** add-on is enabled (Edit → Preferences → Add-ons).
-3. In the 3D Viewport sidebar (press N), the **MCP for Blender** tab is connected. Click **Connect to Claude** if it shows that button.
-4. Claude Code was started in this project after `/mcp` showed `blender` as connected.
+3. In the 3D Viewport sidebar (press N), the **MCP for Blender** tab is connected. Click **Connect to MCP server** (**Connect to Claude** in older versions) if it shows that button.
+4. `/mcp` in Claude Code shows `blender` as connected.
 
 The first command after connecting sometimes fails. Retry it once before reporting a problem.
 

@@ -1,0 +1,10 @@
+{
+  "enabledMcpjsonServers": ["blender"],
+  "permissions": {
+    "allow": [
+      "mcp__blender",
+      "mcp__Roblox_Studio",
+      "mcp__roblox_studio"
+    ]
+  }
+}
