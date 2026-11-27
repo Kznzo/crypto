@@ -22,6 +22,14 @@ Before writing code in a domain, load the matching skill with the Skill tool. Th
 
 Load only the skills the current task needs, and read their `references/` files when the skill points you there. If the plugin isn't installed, carry on with your own knowledge and use `search_api_docs` to check APIs.
 
+**The user's own skills** are installed in `~/.claude/skills`. They're private: never copy them into the repo.
+- **`lihfolk-stud-voxel`** is for anything in the stud / LEGO voxel style:
+  - cute rigged pets and critters (box rig, with Luau data and animation clips)
+  - mobs and bosses
+  - buildings, props, trees and terrain (brick pipeline)
+  Use it for Egg Run's animals and map props, and copy its closest example.
+- **`folk-treadmills`** is for treadmills, speed trainers and training pads.
+
 **For anything going into Roblox, also load `lihfolk:roblox-blender-modeling`** from the LihFolk plugin. It adds:
 - Roblox triangle budgets per asset type
 - a quality gate: `lf.gate(ob, cls)` checks symmetry, alignment, floating parts and shading

@@ -42,6 +42,11 @@ The `lihfolk` plugin (LihFolk Vault V2) gives you 1,300+ Roblox notes, drop-in L
 | Trend or viral game ideas | `roblox-trend-game` |
 | Scoring a finished system or asset (only when asked) | `quality-score` |
 
+**The user's own skills** are installed in `~/.claude/skills`. They're private: never copy them into the repo.
+- **`folk-stud-ui`** is for every menu and HUD: the stud UI style, with left-rail HUD, shop, egg shop, quests, backpack, index, settings and rebirth.
+- **`folk-treadmills`** is for treadmills and speed trainers. It includes Roblox scripts: rig, animator and VFX.
+- **`lihfolk-stud-voxel`** is for stud voxel models, built through the blender agent. Its `ModelBuild` and `ModelAnimator` Luau modules spawn and animate box-rig pets in Roblox.
+
 **Look up facts yourself.**
 - You can't start other agents, so skip the router's advice to use `lihfolk-lookup`. Follow its "Looking it up yourself" steps instead: `python "<VAULT>/_tools/vault.py" "<task in plain words>"`. Use `python3` or `py` if `python` isn't found.
 - Always look up limits, quotas, prices, policy and anything changed in 2025-2026, because your memory is out of date there.
