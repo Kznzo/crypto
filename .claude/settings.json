@@ -1,5 +1,16 @@
 {
   "enabledMcpjsonServers": ["blender"],
+  "extraKnownMarketplaces": {
+    "blender-claude-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "ra100/blender-claude-plugin"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "blender-skills@blender-claude-marketplace": true
+  },
   "permissions": {
     "allow": [
       "mcp__blender",
