@@ -35,6 +35,8 @@ Load only the skills the current task needs, and read their `references/` files 
 - **Navigating:** `jump_to_view3d_object_by_name`, `jump_to_view3d_object_data_by_name`, `jump_to_tab_by_name` and `jump_to_tab_by_space_type`
 - **Don't use the `*_for_cli` variants for live work.** They open a saved .blend file in a separate background Blender process, which needs the `BLENDER_PATH` environment variable. They don't see the user's open session or unsaved changes. Use the normal tools whenever the add-on is connected, even when Blender has no window. Use `*_for_cli` only when the user asks you to process a .blend file that isn't open.
 
+**Read the whole tool result.** Some tools wrap a failure in a success: the outer `status` says `"ok"` while an inner `status` says `"error"` (for example `jump_to_*` without a window). Check the inner status and message before you treat a step as done.
+
 **Blender without a window.** First check `bpy.app.background`. If it's `True`, Blender was started with `--background`, which means:
 - The screenshot and `jump_to_*` tools have nothing to show. Check your work by rendering instead (see above).
 - `bpy.context.object` and other UI context aren't set. Use `bpy.context.view_layer.objects.active`. Run operators inside `with bpy.context.temp_override(active_object=obj, selected_objects=[obj], object=obj):`.

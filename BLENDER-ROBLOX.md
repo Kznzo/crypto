@@ -125,6 +125,21 @@ The blender agent loads the right **blender-skills** guide for each job (geometr
 
 ---
 
+## What has been tested
+
+- **Blender side: tested for real.** It ran on Blender 5.2.5 LTS with the official MCP add-on and server.
+  - The blender agent built, baked and exported the chest in `examples/treasure-chest/`, and re-imported the FBX to check sizes and pivots.
+  - `/test-blender` passed all five checks.
+  - The Blender in that test had no window, so the screenshot tools weren't exercised. They should work in your normal Blender.
+- **The macOS/Linux setup script** ran successfully, including a second run.
+- **Not tested yet:**
+  - The roblox agent, `/test-roblox` and `/test-pipeline`, because Roblox Studio only runs on Windows and macOS.
+  - The Windows setup script.
+
+  Your first run of these is the real test. If something fails, paste the ✅/❌ checklist to Claude and ask it to fix the agent.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
