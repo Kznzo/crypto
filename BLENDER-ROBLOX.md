@@ -97,11 +97,11 @@ If Quick connect doesn't work, add the server yourself with one command:
 
 - **macOS**
   ```bash
-  claude mcp add --scope user Roblox_Studio -- /Applications/RobloxStudio.app/Contents/MacOS/StudioMCP
+  claude mcp add --scope user --transport stdio Roblox_Studio -- "/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP"
   ```
 - **Windows**
   ```bash
-  claude mcp add --scope user Roblox_Studio -- cmd.exe /c %LOCALAPPDATA%\Roblox\mcp.bat
+  claude mcp add --scope user --transport stdio Roblox_Studio -- cmd.exe /c %LOCALAPPDATA%\Roblox\mcp.bat
   ```
 
 If you installed the older `studio-rust-mcp-server` plugin earlier, disable it so Claude doesn't get two sets of Roblox tools.

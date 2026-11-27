@@ -131,7 +131,7 @@ if not defined HAVE_CLAUDE goto :roblox_quick
 call claude mcp list 2>nul | findstr /i "roblox" >nul
 if not errorlevel 1 goto :roblox_ok
 if not exist "%ROBLOX_MCP_BAT%" goto :roblox_missing
-call claude mcp add --scope user Roblox_Studio -- cmd.exe /c "%ROBLOX_MCP_BAT%" >nul 2>nul
+call claude mcp add --scope user --transport stdio Roblox_Studio -- cmd.exe /c "%ROBLOX_MCP_BAT%" >nul 2>nul
 if errorlevel 1 goto :roblox_quick
 echo   [ok] Roblox Studio connected to Claude Code
 goto :done
