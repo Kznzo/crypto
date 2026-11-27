@@ -18,6 +18,7 @@ where uvx >nul 2>nul
 if not errorlevel 1 goto :uv_ok
 echo   Installing uv...
 winget install --id=astral-sh.uv -e --accept-package-agreements --accept-source-agreements
+if errorlevel 1 echo   [!] Automatic install failed. Install uv from https://docs.astral.sh/uv/getting-started/installation/
 set "NEED_RERUN=1"
 goto :git
 :uv_ok
@@ -31,6 +32,7 @@ where git >nul 2>nul
 if not errorlevel 1 goto :git_ok
 echo   Installing git...
 winget install --id Git.Git -e --accept-package-agreements --accept-source-agreements
+if errorlevel 1 echo   [!] Automatic install failed. Install git from https://git-scm.com/download/win
 set "NEED_RERUN=1"
 goto :after_tools
 :git_ok
